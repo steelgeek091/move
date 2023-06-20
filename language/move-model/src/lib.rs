@@ -49,7 +49,7 @@ use crate::{
 };
 
 pub mod ast;
-mod builder;
+pub mod builder;
 pub mod code_writer;
 pub mod exp_generator;
 pub mod exp_rewriter;
@@ -275,7 +275,7 @@ pub fn run_model_builder_with_options_and_compilation_flags<
     Ok(env)
 }
 
-fn collect_related_modules_recursive<'a>(
+pub fn collect_related_modules_recursive<'a>(
     mident: &'a ModuleIdent_,
     modules: &'a UniqueMap<ModuleIdent, ModuleDefinition>,
     visited_modules: &mut BTreeSet<ModuleIdent_>,
@@ -338,7 +338,7 @@ pub fn run_bytecode_model_builder<'a>(
     Ok(env)
 }
 
-fn add_move_lang_diagnostics(env: &mut GlobalEnv, diags: Diagnostics) {
+pub fn add_move_lang_diagnostics(env: &mut GlobalEnv, diags: Diagnostics) {
     let mk_label = |is_primary: bool, (loc, msg): (move_ir_types::location::Loc, String)| {
         let style = if is_primary {
             LabelStyle::Primary
@@ -364,7 +364,7 @@ fn add_move_lang_diagnostics(env: &mut GlobalEnv, diags: Diagnostics) {
 }
 
 #[allow(deprecated)]
-fn script_into_module(compiled_script: CompiledScript) -> CompiledModule {
+pub fn script_into_module(compiled_script: CompiledScript) -> CompiledModule {
     let mut script = compiled_script;
 
     // Add the "<SELF>" identifier if it isn't present.
@@ -476,7 +476,11 @@ fn script_into_module(compiled_script: CompiledScript) -> CompiledModule {
 }
 
 #[allow(deprecated)]
-fn run_spec_checker(env: &mut GlobalEnv, units: Vec<AnnotatedCompiledUnit>, mut eprog: E::Program) {
+pub fn run_spec_checker(
+    env: &mut GlobalEnv,
+    units: Vec<AnnotatedCompiledUnit>,
+    mut eprog: E::Program,
+) {
     let mut builder = ModelBuilder::new(env);
     // Merge the compiled units with the expanded program, preserving the order of the compiled
     // units which is topological w.r.t. use relation.
@@ -600,7 +604,7 @@ fn run_spec_checker(env: &mut GlobalEnv, units: Vec<AnnotatedCompiledUnit>, mut 
     run_spec_simplifier(env);
 }
 
-fn run_spec_simplifier(env: &mut GlobalEnv) {
+pub fn run_spec_simplifier(env: &mut GlobalEnv) {
     let options = env
         .get_extension::<ModelBuilderOptions>()
         .expect("options for model builder");

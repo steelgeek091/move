@@ -49,29 +49,6 @@ impl Token {
     }
 }
 
-fn token_as_name(tok: Token) -> Result<String> {
-    use Token::*;
-    Ok(match tok {
-        U8Type => "u8".to_string(),
-        U16Type => "u16".to_string(),
-        U32Type => "u32".to_string(),
-        U64Type => "u64".to_string(),
-        U128Type => "u128".to_string(),
-        U256Type => "u256".to_string(),
-        BoolType => "bool".to_string(),
-        AddressType => "address".to_string(),
-        VectorType => "vector".to_string(),
-        True => "true".to_string(),
-        False => "false".to_string(),
-        SignerType => "signer".to_string(),
-        Name(s) => s,
-        Whitespace(_) | Address(_) | U8(_) | U16(_) | U32(_) | U64(_) | U128(_) | U256(_)
-        | Bytes(_) | ColonColon | Lt | Gt | Comma | EOF => {
-            bail!("Invalid token. Expected a name but got {:?}", tok)
-        },
-    })
-}
-
 fn name_token(s: String) -> Token {
     match s.as_str() {
         "u8" => Token::U8Type,
@@ -290,7 +267,11 @@ impl<I: Iterator<Item = Token>> Parser<I> {
         })
     }
 
-    fn parse_type_tag(&mut self) -> Result<TypeTag> {
+    fn parse_type_tag(&mut self, depth: u8) -> Result<TypeTag> {
+        if depth >= crate::safe_serialize::MAX_TYPE_TAG_NESTING {
+            bail!("Exceeded TypeTag nesting limit during parsing: {}", depth);
+        }
+
         Ok(match self.next()? {
             Token::U8Type => TypeTag::U8,
             Token::U16Type => TypeTag::U16,
@@ -303,30 +284,41 @@ impl<I: Iterator<Item = Token>> Parser<I> {
             Token::SignerType => TypeTag::Signer,
             Token::VectorType => {
                 self.consume(Token::Lt)?;
-                let ty = self.parse_type_tag()?;
+                let ty = self.parse_type_tag(depth + 1)?;
                 self.consume(Token::Gt)?;
                 TypeTag::Vector(Box::new(ty))
             },
             Token::Address(addr) => {
                 self.consume(Token::ColonColon)?;
-                let module = self.next().and_then(token_as_name)?;
-                self.consume(Token::ColonColon)?;
-                let name = self.next().and_then(token_as_name)?;
-                let ty_args = if self.peek() == Some(&Token::Lt) {
-                    self.next()?;
-                    let ty_args =
-                        self.parse_comma_list(|parser| parser.parse_type_tag(), Token::Gt, true)?;
-                    self.consume(Token::Gt)?;
-                    ty_args
-                } else {
-                    vec![]
-                };
-                TypeTag::Struct(Box::new(StructTag {
-                    address: AccountAddress::from_hex_literal(&addr)?,
-                    module: Identifier::new(module)?,
-                    name: Identifier::new(name)?,
-                    type_params: ty_args,
-                }))
+                match self.next()? {
+                    Token::Name(module) => {
+                        self.consume(Token::ColonColon)?;
+                        match self.next()? {
+                            Token::Name(name) => {
+                                let ty_args = if self.peek() == Some(&Token::Lt) {
+                                    self.next()?;
+                                    let ty_args = self.parse_comma_list(
+                                        |parser| parser.parse_type_tag(depth + 1),
+                                        Token::Gt,
+                                        true,
+                                    )?;
+                                    self.consume(Token::Gt)?;
+                                    ty_args
+                                } else {
+                                    vec![]
+                                };
+                                TypeTag::Struct(Box::new(StructTag {
+                                    address: AccountAddress::from_hex_literal(&addr)?,
+                                    module: Identifier::new(module)?,
+                                    name: Identifier::new(name)?,
+                                    type_params: ty_args,
+                                }))
+                            },
+                            t => bail!("expected name, got {:?}", t),
+                        }
+                    },
+                    t => bail!("expected name, got {:?}", t),
+                }
             },
             tok => bail!("unexpected token {:?}, expected type tag", tok),
         })
@@ -374,12 +366,12 @@ pub fn parse_string_list(s: &str) -> Result<Vec<String>> {
 
 pub fn parse_type_tags(s: &str) -> Result<Vec<TypeTag>> {
     parse(s, |parser| {
-        parser.parse_comma_list(|parser| parser.parse_type_tag(), Token::EOF, true)
+        parser.parse_comma_list(|parser| parser.parse_type_tag(0), Token::EOF, true)
     })
 }
 
 pub fn parse_type_tag(s: &str) -> Result<TypeTag> {
-    parse(s, |parser| parser.parse_type_tag())
+    parse(s, |parser| parser.parse_type_tag(0))
 }
 
 pub fn parse_transaction_arguments(s: &str) -> Result<Vec<TransactionArgument>> {
@@ -397,7 +389,7 @@ pub fn parse_transaction_argument(s: &str) -> Result<TransactionArgument> {
 }
 
 pub fn parse_struct_tag(s: &str) -> Result<StructTag> {
-    let type_tag = parse(s, |parser| parser.parse_type_tag())
+    let type_tag = parse(s, |parser| parser.parse_type_tag(0))
         .map_err(|e| format_err!("invalid struct tag: {}, {}", s, e))?;
     if let TypeTag::Struct(struct_tag) = type_tag {
         Ok(*struct_tag)
@@ -641,37 +633,5 @@ mod tests {
             "Should have failed to parse type tag {}",
             s
         );
-    }
-
-    #[test]
-    fn test_parse_struct_tag_with_type_names() {
-        let names = vec![
-            "address", "vector", "u128", "u256", "u64", "u32", "u16", "u8", "bool", "signer",
-        ];
-
-        let mut tests = vec![];
-        for name in &names {
-            for name_type in &names {
-                tests.push(format!("0x1::{name}::{name_type}"))
-            }
-        }
-
-        let mut instantiations = vec![];
-        for ty in &tests {
-            for other_ty in &tests {
-                instantiations.push(format!("{ty}<{other_ty}>"))
-            }
-        }
-
-        for text in tests.iter().chain(instantiations.iter()) {
-            let st = parse_struct_tag(text).expect("valid StructTag");
-            assert_eq!(
-                st.to_string().replace(' ', ""),
-                text.replace(' ', ""),
-                "text: {:?}, StructTag: {:?}",
-                text,
-                st
-            );
-        }
     }
 }

@@ -196,41 +196,6 @@ impl<'a> Compiler<'a> {
         self
     }
 
-    pub fn run_with_sources<const TARGET: Pass>(
-        self,
-        targets_sources: Vec<String>,
-        deps_source: Vec<String>,
-    ) -> anyhow::Result<(
-        FilesSourceText,
-        Result<(CommentMap, SteppedCompiler<'a, TARGET>), Diagnostics>,
-    )> {
-        let Self {
-            maps,
-            targets,
-            deps,
-            interface_files_dir_opt: _interface_files_dir_opt,
-            pre_compiled_lib,
-            compiled_module_named_address_mapping: _compiled_module_named_address_mapping,
-            flags,
-        } = self;
-        let mut compilation_env = CompilationEnv::new(flags);
-        let (source_text, pprog_and_comments_res) = parse_source_program(
-            &mut compilation_env,
-            maps,
-            targets,
-            deps,
-            targets_sources,
-            deps_source,
-        )?;
-        let res: Result<_, Diagnostics> = pprog_and_comments_res.and_then(|(pprog, comments)| {
-            SteppedCompiler::new_at_parser(compilation_env, pre_compiled_lib, pprog)
-                .run::<TARGET>()
-                .map(|compiler| (comments, compiler))
-        });
-        Ok((source_text, res))
-    }
-
-
     pub fn run<const TARGET: Pass>(
         self,
     ) -> anyhow::Result<(
@@ -457,26 +422,6 @@ impl<'a> SteppedCompiler<'a, PASS_COMPILATION> {
     }
 }
 
-pub fn construct_pre_compiled_lib_with_dep<Paths: Into<Symbol>, NamedAddress: Into<Symbol>>(
-    targets: Vec<PackagePaths<Paths, NamedAddress>>,
-    interface_files_dir_opt: Option<String>,
-    flags: Flags,
-    pre_compiled_dep: Option<&FullyCompiledProgram>,
-) -> anyhow::Result<Result<FullyCompiledProgram, (FilesSourceText, Diagnostics)>> {
-    let compiler =
-        Compiler::from_package_paths(targets, Vec::<PackagePaths<Paths, NamedAddress>>::new())
-            .set_interface_files_dir_opt(interface_files_dir_opt)
-            .set_flags(flags);
-
-    let compiler = if let Some(pre_compiled) = pre_compiled_dep {
-        compiler.set_pre_compiled_lib(pre_compiled)
-    } else {
-        compiler
-    };
-
-    construct_pre_compiled_lib_from_compiler(compiler)
-}
-
 /// Given a set of dependencies, precompile them and save the ASTs so that they can be used again
 /// to compile against without having to recompile these dependencies
 pub fn construct_pre_compiled_lib<Paths: Into<Symbol>, NamedAddress: Into<Symbol>>(
@@ -484,17 +429,11 @@ pub fn construct_pre_compiled_lib<Paths: Into<Symbol>, NamedAddress: Into<Symbol
     interface_files_dir_opt: Option<String>,
     flags: Flags,
 ) -> anyhow::Result<Result<FullyCompiledProgram, (FilesSourceText, Diagnostics)>> {
-    let compiler =
+    let (files, pprog_and_comments_res) =
         Compiler::from_package_paths(targets, Vec::<PackagePaths<Paths, NamedAddress>>::new())
             .set_interface_files_dir_opt(interface_files_dir_opt)
-            .set_flags(flags);
-    construct_pre_compiled_lib_from_compiler(compiler)
-}
-
-pub fn construct_pre_compiled_lib_from_compiler(
-    compiler: Compiler,
-) -> anyhow::Result<Result<FullyCompiledProgram, (FilesSourceText, Diagnostics)>> {
-    let (files, pprog_and_comments_res) = compiler.run::<PASS_PARSER>()?;
+            .set_flags(flags)
+            .run::<PASS_PARSER>()?;
 
     let (_comments, stepped) = match pprog_and_comments_res {
         Err(errors) => return Ok(Err((files, errors))),

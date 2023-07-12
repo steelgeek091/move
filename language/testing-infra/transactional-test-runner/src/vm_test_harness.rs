@@ -38,7 +38,6 @@ use move_vm_runtime::{
 use move_vm_test_utils::{gas_schedule::GasStatus, InMemoryStorage};
 use once_cell::sync::Lazy;
 use std::{collections::BTreeMap, path::Path};
-use move_vm_runtime::data_cache::TransactionDataCache;
 
 const STD_ADDR: AccountAddress = AccountAddress::ONE;
 
@@ -338,7 +337,7 @@ impl<'a> SimpleVMTestAdapter<'a> {
     fn perform_session_action<Ret>(
         &mut self,
         gas_budget: Option<u64>,
-        f: impl FnOnce(&mut Session<TransactionDataCache>, &mut GasStatus) -> VMResult<Ret>,
+        f: impl FnOnce(&mut Session, &mut GasStatus) -> VMResult<Ret>,
         vm_config: VMConfig,
     ) -> VMResult<Ret> {
         // start session

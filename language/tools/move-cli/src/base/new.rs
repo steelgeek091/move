@@ -42,8 +42,8 @@ impl New {
         self,
         path: Option<PathBuf>,
         version: &str,
-        deps: impl IntoIterator<Item=(impl Display, impl Display)>,
-        addrs: impl IntoIterator<Item=(impl Display, impl Display)>,
+        deps: impl IntoIterator<Item = (impl Display, impl Display)>,
+        addrs: impl IntoIterator<Item = (impl Display, impl Display)>,
         custom: &str, // anything else that needs to end up being in Move.toml (or empty string)
     ) -> anyhow::Result<()> {
         // TODO warn on build config flags
@@ -53,7 +53,7 @@ impl New {
             Some(path) => {
                 p = path;
                 &p
-            }
+            },
             None => Path::new(&name),
         };
         create_dir_all(path.join(SourcePackageLayout::Sources.path()))?;
@@ -76,7 +76,7 @@ version = \"{version}\"
 [addresses]"
         )?;
         for (addr_name, addr_val) in addrs {
-            writeln!(w, "{addr_name} = \"{addr_val}\"")?;
+            writeln!(w, "{addr_name} =  \"{addr_val}\"")?;
         }
         if !custom.is_empty() {
             writeln!(w, "{}", custom)?;

@@ -60,7 +60,7 @@ pub const LOCAL_INDEX_MAX: u64 = 255;
 
 pub const IDENTIFIER_SIZE_MAX: u64 = 65535;
 
-pub const CONSTANT_SIZE_MAX: u64 = 131070;
+pub const CONSTANT_SIZE_MAX: u64 = 65535;
 
 pub const METADATA_KEY_SIZE_MAX: u64 = 1023;
 pub const METADATA_VALUE_SIZE_MAX: u64 = 65535;

@@ -12,12 +12,12 @@
 
 pub mod data_cache;
 mod interpreter;
-pub mod loader;
+mod loader;
 pub mod logging;
 pub mod move_vm;
 pub mod native_extensions;
 pub mod native_functions;
-pub mod runtime;
+mod runtime;
 pub mod session;
 #[macro_use]
 mod tracing;

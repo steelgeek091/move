@@ -2,9 +2,9 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::data_cache::TransactionCache;
-use crate::{loader::LoadedFunction, move_vm::MoveVM,
-            native_extensions::NativeContextExtensions,
+use crate::{
+    data_cache::TransactionDataCache, loader::LoadedFunction, move_vm::MoveVM,
+    native_extensions::NativeContextExtensions,
 };
 use move_binary_format::{
     compatibility::Compatibility,
@@ -13,7 +13,7 @@ use move_binary_format::{
 };
 use move_core_types::{
     account_address::AccountAddress,
-    effects::{ChangeSet, Event},
+    effects::{ChangeSet, Changes, Event},
     gas_algebra::NumBytes,
     identifier::IdentStr,
     language_storage::{ModuleId, TypeTag},
@@ -22,15 +22,14 @@ use move_core_types::{
 use move_vm_types::{
     gas::GasMeter,
     loaded_data::runtime_types::{CachedStructIndex, StructType, Type},
-    values::GlobalValue,
+    values::{GlobalValue, Value},
 };
 use std::{borrow::Borrow, sync::Arc};
-use crate::runtime::VMRuntime;
 
-pub struct Session<'r, 'l, C> {
-    pub move_vm: &'l MoveVM,
-    pub data_cache: C,
-    pub native_extensions: NativeContextExtensions<'r>,
+pub struct Session<'r, 'l> {
+    pub(crate) move_vm: &'l MoveVM,
+    pub(crate) data_cache: TransactionDataCache<'r>,
+    pub(crate) native_extensions: NativeContextExtensions<'r>,
 }
 
 /// Serialized return values from function/script execution
@@ -44,7 +43,7 @@ pub struct SerializedReturnValues {
     pub return_values: Vec<(Vec<u8>, MoveTypeLayout)>,
 }
 
-impl<'r, 'l, C: TransactionCache> Session<'r, 'l, C> {
+impl<'r, 'l> Session<'r, 'l> {
     /// Execute a Move function with the given arguments. This is mainly designed for an external
     /// environment to invoke system logic written in Move.
     ///
@@ -263,7 +262,6 @@ impl<'r, 'l, C: TransactionCache> Session<'r, 'l, C> {
             .map_err(|e| e.finish(Location::Undefined))
     }
 
-    /*
     pub fn finish_with_custom_effects<Resource>(
         self,
         resource_converter: &dyn Fn(Value, MoveTypeLayout) -> PartialVMResult<Resource>,
@@ -272,7 +270,6 @@ impl<'r, 'l, C: TransactionCache> Session<'r, 'l, C> {
             .into_custom_effects(resource_converter, self.move_vm.runtime.loader())
             .map_err(|e| e.finish(Location::Undefined))
     }
-     */
 
     /// Same like `finish`, but also extracts the native context extensions from the session.
     pub fn finish_with_extensions(
@@ -289,7 +286,6 @@ impl<'r, 'l, C: TransactionCache> Session<'r, 'l, C> {
         Ok((change_set, events, native_extensions))
     }
 
-    /*
     pub fn finish_with_extensions_with_custom_effects<Resource>(
         self,
         resource_converter: &dyn Fn(Value, MoveTypeLayout) -> PartialVMResult<Resource>,
@@ -308,7 +304,6 @@ impl<'r, 'l, C: TransactionCache> Session<'r, 'l, C> {
             .map_err(|e| e.finish(Location::Undefined))?;
         Ok((change_set, events, native_extensions))
     }
-     */
 
     /// Try to load a resource from remote storage and create a corresponding GlobalValue
     /// that is owned by the data store.
@@ -426,25 +421,12 @@ impl<'r, 'l, C: TransactionCache> Session<'r, 'l, C> {
     }
 
     /// Gets the underlying native extensions.
-    pub fn get_native_extensions(&self) -> &NativeContextExtensions<'r> {
-        &self.native_extensions
-    }
-
-    /// Gets the underlying native extensions as mut.
-    pub fn get_native_extensions_mut(&mut self) -> &mut NativeContextExtensions<'r> {
+    pub fn get_native_extensions(&mut self) -> &mut NativeContextExtensions<'r> {
         &mut self.native_extensions
     }
 
     pub fn get_move_vm(&self) -> &'l MoveVM {
         self.move_vm
-    }
-
-    pub fn get_data_store(&mut self) -> &mut dyn TransactionCache {
-        &mut self.data_cache
-    }
-
-    pub fn runtime(&self) -> &VMRuntime {
-        &self.move_vm.runtime
     }
 }
 

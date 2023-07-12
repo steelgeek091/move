@@ -2,9 +2,9 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::data_cache::TransactionCache;
 use crate::{
     config::VMConfig,
+    data_cache::TransactionDataCache,
     logging::expect_no_verification_errors,
     native_functions::{NativeFunction, NativeFunctions, UnboxedNativeFunction},
     session::LoadedFunctionInstantiation,
@@ -569,7 +569,7 @@ impl ModuleCache {
 // entities. Each cache is protected by a `RwLock`. Operation in the Loader must be thread safe
 // (operating on values on the stack) and when cache needs updating the mutex must be taken.
 // The `pub(crate)` API is what a Loader offers to the runtime.
-pub struct Loader {
+pub(crate) struct Loader {
     scripts: RwLock<ScriptCache>,
     module_cache: RwLock<ModuleCache>,
     type_cache: RwLock<TypeCache>,
@@ -693,7 +693,7 @@ impl Loader {
         &self,
         script_blob: &[u8],
         ty_args: &[TypeTag],
-        data_store: &impl TransactionCache,
+        data_store: &TransactionDataCache,
     ) -> VMResult<(Arc<Function>, LoadedFunctionInstantiation)> {
         // retrieve or load the script
         let mut sha3_256 = Sha3_256::new();
@@ -745,7 +745,7 @@ impl Loader {
     fn deserialize_and_verify_script(
         &self,
         script: &[u8],
-        data_store: &impl TransactionCache,
+        data_store: &TransactionDataCache,
     ) -> VMResult<CompiledScript> {
         let script = match CompiledScript::deserialize_with_max_version(
             script,
@@ -804,7 +804,7 @@ impl Loader {
         &self,
         module_id: &ModuleId,
         function_name: &IdentStr,
-        data_store: &impl TransactionCache,
+        data_store: &TransactionDataCache,
     ) -> VMResult<(Arc<Module>, Arc<Function>, Vec<Type>, Vec<Type>)> {
         let module = self.load_module(module_id, data_store)?;
         let idx = self
@@ -917,7 +917,7 @@ impl Loader {
         module_id: &ModuleId,
         function_name: &IdentStr,
         expected_return_type: &Type,
-        data_store: &impl TransactionCache,
+        data_store: &TransactionDataCache,
     ) -> VMResult<(LoadedFunction, LoadedFunctionInstantiation)> {
         let (module, func, parameters, return_vec) =
             self.load_function_without_type_args(module_id, function_name, data_store)?;
@@ -979,7 +979,7 @@ impl Loader {
         module_id: &ModuleId,
         function_name: &IdentStr,
         ty_args: &[TypeTag],
-        data_store: &impl TransactionCache,
+        data_store: &TransactionDataCache,
     ) -> VMResult<(Arc<Module>, Arc<Function>, LoadedFunctionInstantiation)> {
         let (module, func, parameters, return_) =
             self.load_function_without_type_args(module_id, function_name, data_store)?;
@@ -1012,10 +1012,10 @@ impl Loader {
     //
     // All modules in the bundle to be published must be loadable. This function performs all
     // verification steps to load these modules without actually loading them into the code cache.
-    pub fn verify_module_bundle_for_publication(
+    pub(crate) fn verify_module_bundle_for_publication(
         &self,
         modules: &[CompiledModule],
-        data_store: &(impl TransactionCache + ?Sized),
+        data_store: &mut TransactionDataCache,
     ) -> VMResult<()> {
         fail::fail_point!("verifier-failpoint-1", |_| { Ok(()) });
 
@@ -1052,7 +1052,7 @@ impl Loader {
         module: &CompiledModule,
         bundle_verified: &BTreeMap<ModuleId, CompiledModule>,
         bundle_unverified: &BTreeSet<ModuleId>,
-        data_store: &(impl TransactionCache + ?Sized),
+        data_store: &TransactionDataCache,
     ) -> VMResult<()> {
         // Performs all verification steps to load the module without loading it, i.e., the new
         // module will NOT show up in `module_cache`. In the module republishing case, it means
@@ -1155,7 +1155,7 @@ impl Loader {
     pub(crate) fn load_type(
         &self,
         type_tag: &TypeTag,
-        data_store: &(impl TransactionCache + ?Sized),
+        data_store: &TransactionDataCache,
     ) -> VMResult<Type> {
         Ok(match type_tag {
             TypeTag::Bool => Type::Bool,
@@ -1197,7 +1197,7 @@ impl Loader {
     pub(crate) fn load_module(
         &self,
         id: &ModuleId,
-        data_store: &(impl TransactionCache + ?Sized),
+        data_store: &TransactionDataCache,
     ) -> VMResult<Arc<Module>> {
         self.load_module_internal(id, &BTreeMap::new(), &BTreeSet::new(), data_store)
     }
@@ -1209,7 +1209,7 @@ impl Loader {
         id: &ModuleId,
         bundle_verified: &BTreeMap<ModuleId, CompiledModule>,
         bundle_unverified: &BTreeSet<ModuleId>,
-        data_store: &(impl TransactionCache + ?Sized),
+        data_store: &TransactionDataCache,
     ) -> VMResult<Arc<Module>> {
         // if the module is already in the code cache, load the cached version
         if let Some(cached) = self.module_cache.read().module_at(id) {
@@ -1241,7 +1241,7 @@ impl Loader {
     fn load_and_verify_module(
         &self,
         id: &ModuleId,
-        data_store: &(impl TransactionCache + ?Sized),
+        data_store: &TransactionDataCache,
         allow_loading_failure: bool,
     ) -> VMResult<CompiledModule> {
         // bytes fetching, allow loading to fail if the flag is set
@@ -1291,7 +1291,7 @@ impl Loader {
         &self,
         id: &ModuleId,
         bundle_verified: &BTreeMap<ModuleId, CompiledModule>,
-        data_store: &(impl TransactionCache + ?Sized),
+        data_store: &TransactionDataCache,
         visited: &mut BTreeSet<ModuleId>,
         friends_discovered: &mut BTreeSet<ModuleId>,
         allow_module_loading_failure: bool,
@@ -1333,7 +1333,7 @@ impl Loader {
         &self,
         module: &CompiledModule,
         bundle_verified: &BTreeMap<ModuleId, CompiledModule>,
-        data_store: &(impl TransactionCache + ?Sized),
+        data_store: &TransactionDataCache,
         visited: &mut BTreeSet<ModuleId>,
         friends_discovered: &mut BTreeSet<ModuleId>,
         allow_dependency_loading_failure: bool,
@@ -1402,7 +1402,7 @@ impl Loader {
         id: &ModuleId,
         bundle_verified: &BTreeMap<ModuleId, CompiledModule>,
         bundle_unverified: &BTreeSet<ModuleId>,
-        data_store: &(impl TransactionCache + ?Sized),
+        data_store: &TransactionDataCache,
         allow_module_loading_failure: bool,
         dependencies_depth: usize,
     ) -> VMResult<Arc<Module>> {
@@ -1439,7 +1439,7 @@ impl Loader {
         friends_discovered: BTreeSet<ModuleId>,
         bundle_verified: &BTreeMap<ModuleId, CompiledModule>,
         bundle_unverified: &BTreeSet<ModuleId>,
-        data_store: &(impl TransactionCache + ?Sized),
+        data_store: &TransactionDataCache,
         allow_friend_loading_failure: bool,
         dependencies_depth: usize,
     ) -> VMResult<()> {
@@ -1596,11 +1596,11 @@ impl Loader {
                 "Unexpected TyParam type after translating from TypeTag to Type".to_string(),
             )),
 
-            Type::Vector(ty) => AbilitySet::polymorphic_abilities(
-                AbilitySet::VECTOR,
-                vec![false],
-                vec![self.abilities(ty)?],
-            ),
+            Type::Vector(ty) => {
+                AbilitySet::polymorphic_abilities(AbilitySet::VECTOR, vec![false], vec![
+                    self.abilities(ty)?
+                ])
+            },
             Type::Struct(idx) => Ok(self.module_cache.read().struct_at(*idx).abilities),
             Type::StructInstantiation(idx, type_args) => {
                 let struct_type = self.module_cache.read().struct_at(*idx);
@@ -3038,11 +3038,11 @@ impl Loader {
         })
     }
 
-    pub fn type_to_type_tag(&self, ty: &Type) -> PartialVMResult<TypeTag> {
+    pub(crate) fn type_to_type_tag(&self, ty: &Type) -> PartialVMResult<TypeTag> {
         self.type_to_type_tag_impl(ty)
     }
 
-    pub fn type_to_type_layout(&self, ty: &Type) -> PartialVMResult<MoveTypeLayout> {
+    pub(crate) fn type_to_type_layout(&self, ty: &Type) -> PartialVMResult<MoveTypeLayout> {
         let mut count = 0;
         self.type_to_type_layout_impl(ty, &mut count, 1)
     }
@@ -3058,10 +3058,10 @@ impl Loader {
 
 // Public APIs for external uses.
 impl Loader {
-    pub fn get_type_layout(
+    pub(crate) fn get_type_layout(
         &self,
         type_tag: &TypeTag,
-        move_storage: &(impl TransactionCache + ?Sized),
+        move_storage: &TransactionDataCache,
     ) -> VMResult<MoveTypeLayout> {
         let ty = self.load_type(type_tag, move_storage)?;
         self.type_to_type_layout(&ty)
@@ -3071,7 +3071,7 @@ impl Loader {
     pub(crate) fn get_fully_annotated_type_layout(
         &self,
         type_tag: &TypeTag,
-        move_storage: &(impl TransactionCache + ?Sized),
+        move_storage: &TransactionDataCache,
     ) -> VMResult<MoveTypeLayout> {
         let ty = self.load_type(type_tag, move_storage)?;
         self.type_to_fully_annotated_layout(&ty)

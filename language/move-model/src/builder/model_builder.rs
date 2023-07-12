@@ -31,7 +31,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// are extended with each module translated. Each table is a mapping from fully qualified names
 /// (module names plus item name in the module) to the entity.
 #[derive(Debug)]
-pub struct ModelBuilder<'env> {
+pub(crate) struct ModelBuilder<'env> {
     /// The global environment we are building.
     pub env: &'env mut GlobalEnv,
     /// A symbol table for specification functions. Because of overloading, and entry can
@@ -62,7 +62,7 @@ pub struct ModelBuilder<'env> {
 /// A declaration of a specification function or operator in the builders state.
 /// TODO(wrwg): we should unify this type with `FunEntry` using a new `FunctionKind::Spec` kind.
 #[derive(Debug, Clone)]
-pub struct SpecOrBuiltinFunEntry {
+pub(crate) struct SpecOrBuiltinFunEntry {
     #[allow(dead_code)]
     pub loc: Loc,
     pub oper: Operation,
@@ -73,7 +73,7 @@ pub struct SpecOrBuiltinFunEntry {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum EntryVisibility {
+pub(crate) enum EntryVisibility {
     Spec,
     Impl,
     SpecAndImpl,
@@ -81,7 +81,7 @@ pub enum EntryVisibility {
 
 /// A declaration of a specification variable in the builders state.
 #[derive(Debug, Clone)]
-pub struct SpecVarEntry {
+pub(crate) struct SpecVarEntry {
     pub loc: Loc,
     pub module_id: ModuleId,
     #[allow(dead_code)]
@@ -92,7 +92,7 @@ pub struct SpecVarEntry {
 
 /// A declaration of a schema in the builders state.
 #[derive(Debug)]
-pub struct SpecSchemaEntry {
+pub(crate) struct SpecSchemaEntry {
     pub loc: Loc,
     #[allow(dead_code)]
     pub name: QualifiedSymbol,
@@ -110,7 +110,7 @@ pub struct SpecSchemaEntry {
 
 /// A declaration of a struct.
 #[derive(Debug, Clone)]
-pub struct StructEntry {
+pub(crate) struct StructEntry {
     pub loc: Loc,
     pub module_id: ModuleId,
     pub struct_id: StructId,
@@ -122,7 +122,7 @@ pub struct StructEntry {
 
 /// A declaration of a function.
 #[derive(Debug, Clone)]
-pub struct FunEntry {
+pub(crate) struct FunEntry {
     pub loc: Loc,
     pub module_id: ModuleId,
     pub fun_id: FunId,
@@ -172,7 +172,7 @@ impl From<FunEntry> for AnyFunEntry {
 }
 
 #[derive(Debug, Clone)]
-pub struct ConstEntry {
+pub(crate) struct ConstEntry {
     pub loc: Loc,
     pub ty: Type,
     pub value: Value,
@@ -454,7 +454,7 @@ impl<'env> ModelBuilder<'env> {
 }
 
 #[derive(Debug, Clone)]
-pub struct LocalVarEntry {
+pub(crate) struct LocalVarEntry {
     pub loc: Loc,
     pub type_: Type,
     /// If this local is associated with an operation, this is set.

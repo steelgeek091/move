@@ -55,7 +55,7 @@ use std::{
 };
 
 #[derive(Debug)]
-pub struct ModuleBuilder<'env, 'translator> {
+pub(crate) struct ModuleBuilder<'env, 'translator> {
     pub parent: &'translator mut ModelBuilder<'env>,
     /// Id of the currently build module.
     pub module_id: ModuleId,
@@ -90,7 +90,7 @@ pub struct ModuleBuilder<'env, 'translator> {
 /// Represents information about a module already compiled into bytecode by the legacy
 /// Move compiler.
 #[derive(Debug)]
-pub struct BytecodeModule {
+pub(crate) struct BytecodeModule {
     pub compiled_module: CompiledModule,
     pub source_map: SourceMap,
     pub function_infos: UniqueMap<PA::FunctionName, FunctionInfo>,
@@ -3500,7 +3500,7 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
 }
 
 /// Extract all accesses of a schema from a schema expression.
-pub fn extract_schema_access<'a>(exp: &'a EA::Exp, res: &mut Vec<&'a EA::ModuleAccess>) {
+pub(crate) fn extract_schema_access<'a>(exp: &'a EA::Exp, res: &mut Vec<&'a EA::ModuleAccess>) {
     match &exp.value {
         EA::Exp_::Name(maccess, _) => res.push(maccess),
         EA::Exp_::Pack(maccess, ..) => res.push(maccess),

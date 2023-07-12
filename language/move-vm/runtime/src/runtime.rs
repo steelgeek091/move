@@ -4,6 +4,7 @@
 
 use crate::{
     config::VMConfig,
+    data_cache::TransactionDataCache,
     interpreter::Interpreter,
     loader::{Function, LoadedFunction, Loader},
     native_extensions::NativeContextExtensions,
@@ -31,10 +32,9 @@ use move_vm_types::{
     values::{Locals, Reference, VMValueCast, Value},
 };
 use std::{borrow::Borrow, collections::BTreeSet, sync::Arc};
-use crate::data_cache::TransactionCache;
 
 /// An instantiation of the MoveVM.
-pub struct VMRuntime {
+pub(crate) struct VMRuntime {
     loader: Loader,
 }
 
@@ -52,7 +52,7 @@ impl VMRuntime {
         &self,
         modules: Vec<Vec<u8>>,
         sender: AccountAddress,
-        data_store: &mut impl TransactionCache,
+        data_store: &mut TransactionDataCache,
         _gas_meter: &mut impl GasMeter,
         compat: Compatibility,
     ) -> VMResult<()> {
@@ -313,7 +313,7 @@ impl VMRuntime {
         param_types: Vec<Type>,
         return_types: Vec<Type>,
         serialized_args: Vec<impl Borrow<[u8]>>,
-        data_store: &mut impl TransactionCache,
+        data_store: &mut TransactionDataCache,
         gas_meter: &mut impl GasMeter,
         extensions: &mut NativeContextExtensions,
     ) -> VMResult<SerializedReturnValues> {
@@ -383,7 +383,7 @@ impl VMRuntime {
         function_name: &IdentStr,
         ty_args: Vec<TypeTag>,
         serialized_args: Vec<impl Borrow<[u8]>>,
-        data_store: &mut impl TransactionCache,
+        data_store: &mut TransactionDataCache,
         gas_meter: &mut impl GasMeter,
         extensions: &mut NativeContextExtensions,
         bypass_declared_entry_check: bool,
@@ -409,7 +409,7 @@ impl VMRuntime {
         func: LoadedFunction,
         function_instantiation: LoadedFunctionInstantiation,
         serialized_args: Vec<impl Borrow<[u8]>>,
-        data_store: &mut impl TransactionCache,
+        data_store: &mut TransactionDataCache,
         gas_meter: &mut impl GasMeter,
         extensions: &mut NativeContextExtensions,
         bypass_declared_entry_check: bool,
@@ -469,7 +469,7 @@ impl VMRuntime {
         script: impl Borrow<[u8]>,
         ty_args: Vec<TypeTag>,
         serialized_args: Vec<impl Borrow<[u8]>>,
-        data_store: &mut impl TransactionCache,
+        data_store: &mut TransactionDataCache,
         gas_meter: &mut impl GasMeter,
         extensions: &mut NativeContextExtensions,
     ) -> VMResult<SerializedReturnValues> {
@@ -497,7 +497,7 @@ impl VMRuntime {
         )
     }
 
-    pub fn loader(&self) -> &Loader {
+    pub(crate) fn loader(&self) -> &Loader {
         &self.loader
     }
 }

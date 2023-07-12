@@ -14,7 +14,7 @@ use move_core_types::{
     account_address::AccountAddress,
     effects::Op,
     gas_algebra::AbstractMemorySize,
-    u256::{self, U256},
+    u256,
     value::{MoveStructLayout, MoveTypeLayout},
     vm_status::{sub_status::NFE_VECTOR_ERROR_BASE, StatusCode},
 };
@@ -1299,62 +1299,12 @@ impl VMValueCast<Vec<u8>> for Value {
     }
 }
 
-impl VMValueCast<Vec<u16>> for Value {
-    fn cast(self) -> PartialVMResult<Vec<u16>> {
-        match self.0 {
-            ValueImpl::Container(Container::VecU16(r)) => take_unique_ownership(r),
-            v => Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)
-                .with_message(format!("cannot cast {:?} to vector<u16>", v,))),
-        }
-    }
-}
-
-impl VMValueCast<Vec<u32>> for Value {
-    fn cast(self) -> PartialVMResult<Vec<u32>> {
-        match self.0 {
-            ValueImpl::Container(Container::VecU32(r)) => take_unique_ownership(r),
-            v => Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)
-                .with_message(format!("cannot cast {:?} to vector<u32>", v,))),
-        }
-    }
-}
-
 impl VMValueCast<Vec<u64>> for Value {
     fn cast(self) -> PartialVMResult<Vec<u64>> {
         match self.0 {
             ValueImpl::Container(Container::VecU64(r)) => take_unique_ownership(r),
             v => Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)
                 .with_message(format!("cannot cast {:?} to vector<u64>", v,))),
-        }
-    }
-}
-
-impl VMValueCast<Vec<u128>> for Value {
-    fn cast(self) -> PartialVMResult<Vec<u128>> {
-        match self.0 {
-            ValueImpl::Container(Container::VecU128(r)) => take_unique_ownership(r),
-            v => Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)
-                .with_message(format!("cannot cast {:?} to vector<u128>", v,))),
-        }
-    }
-}
-
-impl VMValueCast<Vec<U256>> for Value {
-    fn cast(self) -> PartialVMResult<Vec<U256>> {
-        match self.0 {
-            ValueImpl::Container(Container::VecU256(r)) => take_unique_ownership(r),
-            v => Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)
-                .with_message(format!("cannot cast {:?} to vector<U256>", v,))),
-        }
-    }
-}
-
-impl VMValueCast<Vec<AccountAddress>> for Value {
-    fn cast(self) -> PartialVMResult<Vec<AccountAddress>> {
-        match self.0 {
-            ValueImpl::Container(Container::VecAddress(r)) => take_unique_ownership(r),
-            v => Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)
-                .with_message(format!("cannot cast {:?} to vector<u128>", v,))),
         }
     }
 }
@@ -2106,51 +2056,6 @@ impl VectorRef {
         }
     }
 
-    pub fn reverse(&self, type_param: &Type) -> PartialVMResult<()> {
-        let c = self.0.container();
-        check_elem_layout(type_param, c)?;
-
-        macro_rules! err_pop_empty_vec {
-            () => {
-                return Err(PartialVMError::new(StatusCode::VECTOR_OPERATION_ERROR)
-                    .with_sub_status(POP_EMPTY_VEC))
-            };
-        }
-
-        match c {
-            Container::VecU8(r) => {
-                r.borrow_mut().reverse();
-            },
-            Container::VecU16(r) => {
-                r.borrow_mut().reverse();
-            },
-            Container::VecU32(r) => {
-                r.borrow_mut().reverse();
-            },
-            Container::VecU64(r) => {
-                r.borrow_mut().reverse();
-            },
-            Container::VecU128(r) => {
-                r.borrow_mut().reverse();
-            },
-            Container::VecU256(r) => {
-                r.borrow_mut().reverse();
-            },
-            Container::VecBool(r) => {
-                r.borrow_mut().reverse();
-            },
-            Container::VecAddress(r) => {
-                r.borrow_mut().reverse();
-            },
-            Container::Vec(r) => {
-                r.borrow_mut().reverse();
-            },
-            Container::Locals(_) | Container::Struct(_) => unreachable!(),
-        };
-
-        Ok(())
-    }
-
     pub fn pop(&self, type_param: &Type) -> PartialVMResult<Value> {
         let c = self.0.container();
         check_elem_layout(type_param, c)?;
@@ -2650,14 +2555,6 @@ impl GlobalValueImpl {
             },
         }
     }
-
-    fn reference_count(&self) -> usize {
-        match self {
-            Self::None | Self::Deleted => 0,
-            Self::Fresh { fields } => Rc::strong_count(fields),
-            Self::Cached { fields, status: _ } => Rc::strong_count(fields),
-        }
-    }
 }
 
 impl GlobalValue {
@@ -2704,10 +2601,6 @@ impl GlobalValue {
 
     pub fn is_mutated(&self) -> bool {
         self.0.is_mutated()
-    }
-
-    pub fn reference_count(&self) -> usize {
-        self.0.reference_count()
     }
 }
 
@@ -3349,73 +3242,6 @@ impl Value {
     pub fn deserialize_constant(constant: &Constant) -> Option<Value> {
         let layout = Self::constant_sig_token_to_layout(&constant.type_)?;
         Value::simple_deserialize(&constant.data, &layout)
-    }
-}
-
-impl Value {
-    pub fn size(&self) -> usize {
-        self.0.size()
-    }
-}
-
-impl ValueImpl {
-    pub fn size(&self) -> usize {
-        match self {
-            ValueImpl::Invalid => 0,
-            ValueImpl::U8(_) => 1,
-            ValueImpl::U16(_) => 2,
-            ValueImpl::U32(_) => 4,
-            ValueImpl::U64(_) => 8,
-            ValueImpl::U128(_) => 16,
-            ValueImpl::U256(_) => 32,
-            ValueImpl::Bool(_) => 1,
-            ValueImpl::Address(_) => 32,
-            ValueImpl::Container(v) => v.size(),
-            ValueImpl::ContainerRef(v) => v.size(),
-            ValueImpl::IndexedRef(v) => v.size(),
-        }
-    }
-}
-
-impl Container {
-    pub fn size(&self) -> usize {
-        match self {
-            Container::Vec(v) => {
-                let r = v.borrow();
-                match r.first() {
-                    None => 0,
-                    Some(v) => r.len() * v.size(),
-                }
-            },
-            Container::Struct(v) => v.borrow().iter().map(|s| s.size()).sum(),
-            Container::Locals(v) => v.borrow().iter().map(|s| s.size()).sum(),
-            Container::VecU8(r) => r.borrow().len() * 1,
-            Container::VecU16(r) => r.borrow().len() * 2,
-            Container::VecU32(r) => r.borrow().len() * 4,
-            Container::VecU64(r) => r.borrow().len() * 8,
-            Container::VecU128(r) => r.borrow().len() * 16,
-            Container::VecU256(r) => r.borrow().len() * 32,
-            Container::VecBool(r) => r.borrow().len() * 1,
-            Container::VecAddress(r) => r.borrow().len() * 32,
-        }
-    }
-}
-
-impl ContainerRef {
-    pub fn size(&self) -> usize {
-        match self {
-            ContainerRef::Local(c) => c.size(),
-            ContainerRef::Global {
-                status: _,
-                container: c,
-            } => c.size(),
-        }
-    }
-}
-
-impl IndexedRef {
-    pub fn size(&self) -> usize {
-        self.container_ref.size()
     }
 }
 

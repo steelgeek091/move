@@ -2,8 +2,9 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{interpreter::Interpreter, loader::Resolver,
-            native_extensions::NativeContextExtensions,
+use crate::{
+    data_cache::TransactionDataCache, interpreter::Interpreter, loader::Resolver,
+    native_extensions::NativeContextExtensions,
 };
 use move_binary_format::errors::{
     ExecutionState, Location, PartialVMError, PartialVMResult, VMResult,
@@ -24,8 +25,6 @@ use std::{
     fmt::Write,
     sync::Arc,
 };
-use move_binary_format::CompiledModule;
-use crate::data_cache::TransactionCache;
 
 pub type UnboxedNativeFunction = dyn Fn(&mut NativeContext, Vec<Type>, VecDeque<Value>) -> PartialVMResult<NativeResult>
     + Send
@@ -93,18 +92,18 @@ impl NativeFunctions {
     }
 }
 
-pub struct NativeContext<'a, 'b> {
+pub struct NativeContext<'a, 'b, 'c> {
     interpreter: &'a mut Interpreter,
-    data_store: &'a mut dyn TransactionCache,
+    data_store: &'a mut TransactionDataCache<'c>,
     resolver: &'a Resolver<'a>,
     extensions: &'a mut NativeContextExtensions<'b>,
     gas_balance: InternalGas,
 }
 
-impl<'a, 'b> NativeContext<'a, 'b> {
+impl<'a, 'b, 'c> NativeContext<'a, 'b, 'c> {
     pub(crate) fn new(
         interpreter: &'a mut Interpreter,
-        data_store: &'a mut dyn TransactionCache,
+        data_store: &'a mut TransactionDataCache<'c>,
         resolver: &'a Resolver<'a>,
         extensions: &'a mut NativeContextExtensions<'b>,
         gas_balance: InternalGas,
@@ -119,7 +118,7 @@ impl<'a, 'b> NativeContext<'a, 'b> {
     }
 }
 
-impl<'a, 'b> NativeContext<'a, 'b> {
+impl<'a, 'b, 'c> NativeContext<'a, 'b, 'c> {
     pub fn print_stack_trace<B: Write>(&self, buf: &mut B) -> PartialVMResult<()> {
         self.interpreter
             .debug_print_stack_trace(buf, self.resolver.loader())
@@ -155,26 +154,6 @@ impl<'a, 'b> NativeContext<'a, 'b> {
             Err(e) if e.major_status().status_type() == StatusType::InvariantViolation => Err(e),
             Err(_) => Ok(false),
         }
-    }
-
-    pub fn events(&self) -> &Vec<(Vec<u8>, u64, Type, MoveTypeLayout, Value)> {
-        self.data_store.events()
-    }
-
-    pub fn load_type(&self, type_tag: &TypeTag) -> VMResult<Type> {
-        self.resolver.loader().load_type(type_tag, self.data_store)
-    }
-
-    pub fn get_type_layout(&self, type_tag: &TypeTag) -> VMResult<MoveTypeLayout> {
-        self.resolver
-            .loader()
-            .get_type_layout(type_tag, self.data_store)
-    }
-
-    pub fn get_fully_annotated_type_layout(&self, type_tag: &TypeTag) -> VMResult<MoveTypeLayout> {
-        self.resolver
-            .loader()
-            .get_fully_annotated_type_layout(type_tag, self.data_store)
     }
 
     pub fn type_to_type_tag(&self, ty: &Type) -> PartialVMResult<TypeTag> {
@@ -216,15 +195,5 @@ impl<'a, 'b> NativeContext<'a, 'b> {
 
     pub fn gas_balance(&self) -> InternalGas {
         self.gas_balance
-    }
-
-    pub fn verify_module_bundle_for_publication(
-        &self,
-        modules: &[CompiledModule],
-    ) -> PartialVMResult<()> {
-        self.resolver
-            .loader()
-            .verify_module_bundle_for_publication(modules, self.data_store)
-            .map_err(|e| e.to_partial())
     }
 }

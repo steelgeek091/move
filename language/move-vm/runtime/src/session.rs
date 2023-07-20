@@ -2,10 +2,7 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{
-    data_cache::TransactionDataCache, native_extensions::NativeContextExtensions,
-    runtime::VMRuntime,
-};
+use crate::{native_extensions::NativeContextExtensions, runtime::VMRuntime};
 use move_binary_format::{
     compatibility::Compatibility,
     errors::*,
@@ -16,11 +13,10 @@ use move_core_types::{
     effects::{ChangeSet, Event},
     identifier::IdentStr,
     language_storage::{ModuleId, TypeTag},
-    resolver::MoveResolver,
     value::MoveTypeLayout,
 };
 use move_vm_types::{
-    data_store::DataStore,
+    data_store::{DataStore, TransactionCache},
     gas::GasMeter,
     loaded_data::runtime_types::{CachedStructIndex, StructType, Type},
 };
@@ -28,7 +24,7 @@ use std::{borrow::Borrow, sync::Arc};
 
 pub struct Session<'r, 'l, S> {
     pub(crate) runtime: &'l VMRuntime,
-    pub(crate) data_cache: TransactionDataCache<'r, 'l, S>,
+    pub(crate) data_cache: S,
     pub(crate) native_extensions: NativeContextExtensions<'r>,
 }
 
@@ -43,7 +39,7 @@ pub struct SerializedReturnValues {
     pub return_values: Vec<(Vec<u8>, MoveTypeLayout)>,
 }
 
-impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
+impl<'r, 'l, S: DataStore + TransactionCache> Session<'r, 'l, S> {
     /// Execute a Move function with the given arguments. This is mainly designed for an external
     /// environment to invoke system logic written in Move.
     ///

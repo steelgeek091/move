@@ -28,7 +28,7 @@ use move_core_types::{
     vm_status::StatusCode,
 };
 use move_vm_types::{
-    data_store::DataStore,
+    data_store::{DataStore, TransactionCache},
     gas::GasMeter,
     loaded_data::runtime_types::Type,
     values::{Locals, Reference, VMValueCast, Value},
@@ -51,7 +51,10 @@ impl VMRuntime {
         })
     }
 
-    pub fn new_session<'r, S: MoveResolver>(&self, remote: &'r S) -> Session<'r, '_, S> {
+    pub fn new_session<'r, S: MoveResolver>(
+        &self,
+        remote: &'r S,
+    ) -> Session<'r, '_, TransactionDataCache<'r, '_, S>> {
         self.new_session_with_extensions(remote, NativeContextExtensions::default())
     }
 
@@ -59,10 +62,29 @@ impl VMRuntime {
         &self,
         remote: &'r S,
         native_extensions: NativeContextExtensions<'r>,
-    ) -> Session<'r, '_, S> {
+    ) -> Session<'r, '_, TransactionDataCache<'r, '_, S>> {
         Session {
             runtime: self,
             data_cache: TransactionDataCache::new(remote, &self.loader),
+            native_extensions,
+        }
+    }
+
+    pub fn new_session_with_cache<'r, D: DataStore + TransactionCache>(
+        &self,
+        data_cache: D,
+    ) -> Session<'r, '_, D> {
+        self.new_session_with_cache_and_extensions(data_cache, NativeContextExtensions::default())
+    }
+
+    pub fn new_session_with_cache_and_extensions<'r, D: DataStore + TransactionCache>(
+        &self,
+        data_cache: D,
+        native_extensions: NativeContextExtensions<'r>,
+    ) -> Session<'r, '_, D> {
+        Session {
+            runtime: self,
+            data_cache,
             native_extensions,
         }
     }

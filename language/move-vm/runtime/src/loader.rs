@@ -932,7 +932,7 @@ impl Loader {
     // Helpers for loading and verification
     //
 
-    pub(crate) fn load_type(
+    pub fn load_type(
         &self,
         type_tag: &TypeTag,
         data_store: &(impl DataStore + ?Sized),
@@ -2806,11 +2806,11 @@ impl Loader {
         })
     }
 
-    pub(crate) fn type_to_type_tag(&self, ty: &Type) -> PartialVMResult<TypeTag> {
+    pub fn type_to_type_tag(&self, ty: &Type) -> PartialVMResult<TypeTag> {
         self.type_to_type_tag_impl(ty)
     }
 
-    pub(crate) fn type_to_type_layout(&self, ty: &Type) -> PartialVMResult<MoveTypeLayout> {
+    pub fn type_to_type_layout(&self, ty: &Type) -> PartialVMResult<MoveTypeLayout> {
         let mut count = 0;
         self.type_to_type_layout_impl(ty, &mut count, 1)
     }
@@ -2826,7 +2826,7 @@ impl Loader {
 
 // Public APIs for external uses.
 impl Loader {
-    pub(crate) fn get_type_layout(
+    pub fn get_type_layout(
         &self,
         type_tag: &TypeTag,
         move_storage: &(impl DataStore + ?Sized),

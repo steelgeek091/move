@@ -156,6 +156,26 @@ impl<'a, 'b, 'c> NativeContext<'a, 'b, 'c> {
         }
     }
 
+    pub fn events(&self) -> &Vec<(Vec<u8>, u64, Type, MoveTypeLayout, Value)> {
+        self.data_store.events()
+    }
+
+    pub fn load_type(&self, type_tag: &TypeTag) -> VMResult<Type> {
+        self.resolver.loader().load_type(type_tag, self.data_store)
+    }
+
+    pub fn get_type_layout(&self, type_tag: &TypeTag) -> VMResult<MoveTypeLayout> {
+        self.resolver
+            .loader()
+            .get_type_layout(type_tag, self.data_store)
+    }
+
+    pub fn get_fully_annotated_type_layout(&self, type_tag: &TypeTag) -> VMResult<MoveTypeLayout> {
+        self.resolver
+            .loader()
+            .get_fully_annotated_type_layout(type_tag, self.data_store)
+    }
+
     pub fn type_to_type_tag(&self, ty: &Type) -> PartialVMResult<TypeTag> {
         self.resolver.loader().type_to_type_tag(ty)
     }

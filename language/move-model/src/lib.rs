@@ -395,7 +395,7 @@ fn run_move_checker(env: &mut GlobalEnv, program: E::Program) {
     }
 }
 
-fn collect_related_modules_recursive<'a>(
+pub fn collect_related_modules_recursive<'a>(
     mident: &'a ModuleIdent_,
     modules: &'a UniqueMap<ModuleIdent, E::ModuleDefinition>,
     visited_modules: &mut BTreeSet<ModuleIdent_>,
@@ -410,7 +410,7 @@ fn collect_related_modules_recursive<'a>(
     }
 }
 
-fn add_move_lang_diagnostics(env: &mut GlobalEnv, diags: Diagnostics) {
+pub fn add_move_lang_diagnostics(env: &mut GlobalEnv, diags: Diagnostics) {
     let mk_label = |is_primary: bool, (loc, msg): (move_ir_types::location::Loc, String)| {
         let style = if is_primary {
             LabelStyle::Primary
@@ -436,7 +436,7 @@ fn add_move_lang_diagnostics(env: &mut GlobalEnv, diags: Diagnostics) {
 }
 
 #[allow(deprecated)]
-fn script_into_module(compiled_script: CompiledScript) -> CompiledModule {
+pub fn script_into_module(compiled_script: CompiledScript) -> CompiledModule {
     let mut script = compiled_script;
 
     // Add the "<SELF>" identifier if it isn't present.
@@ -548,7 +548,7 @@ fn script_into_module(compiled_script: CompiledScript) -> CompiledModule {
 }
 
 #[allow(deprecated)]
-fn run_spec_checker(env: &mut GlobalEnv, units: Vec<AnnotatedCompiledUnit>, mut eprog: E::Program) {
+pub fn run_spec_checker(env: &mut GlobalEnv, units: Vec<AnnotatedCompiledUnit>, mut eprog: E::Program) {
     let mut builder = ModelBuilder::new(env);
 
     // Merge the compiled units with source ASTs, preserving the order of the compiled

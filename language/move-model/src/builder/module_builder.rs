@@ -90,7 +90,7 @@ pub struct ModuleBuilder<'env, 'translator> {
 /// Represents information about a module already compiled into bytecode by the legacy
 /// Move compiler.
 #[derive(Debug)]
-pub(crate) struct BytecodeModule {
+pub struct BytecodeModule {
     pub compiled_module: CompiledModule,
     pub source_map: SourceMap,
     pub function_infos: UniqueMap<PA::FunctionName, FunctionInfo>,

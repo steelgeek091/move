@@ -24,6 +24,7 @@ use move_binary_format::{
         ModuleHandleIndex, Signature, SignatureIndex, Visibility,
     },
 };
+use move_compiler::expansion::ast::{Address, ModuleDefinition};
 use move_compiler::{
     self,
     compiled_unit::{self, AnnotatedCompiledScript, AnnotatedCompiledUnit},
@@ -548,7 +549,154 @@ pub fn script_into_module(compiled_script: CompiledScript) -> CompiledModule {
 }
 
 #[allow(deprecated)]
-pub fn run_spec_checker(env: &mut GlobalEnv, units: Vec<AnnotatedCompiledUnit>, mut eprog: E::Program) {
+pub fn run_spec_checker_for_script(
+    env: &mut GlobalEnv,
+    units: Vec<AnnotatedCompiledUnit>,
+    mut eprog: E::Program,
+) {
+    let mut builder = ModelBuilder::new(env);
+
+    // Merge the compiled units with source ASTs, preserving the order of the compiled
+    // units which is topological w.r.t. use relation.
+    let mut modules = vec![];
+    let cloned_units = units.clone();
+    for unit in cloned_units {
+        match unit {
+            AnnotatedCompiledUnit::Module(annot_module) => {
+                let module_ident = annot_module.module_ident();
+                let expanded_module = match eprog.modules.remove(&module_ident) {
+                    Some(m) => m,
+                    None => {
+                        env.error(
+                            &env.unknown_loc(),
+                            &format!(
+                                "[internal] cannot associate bytecode module `{}` with expansion AST",
+                                module_ident
+                            )
+                        );
+                        return;
+                    },
+                };
+                modules.push((
+                    module_ident,
+                    expanded_module,
+                    annot_module.named_module.module,
+                    annot_module.named_module.source_map,
+                    annot_module.function_infos,
+                ));
+            },
+
+            _ => {},
+        }
+    }
+
+    let mut script_modules = vec![];
+    for unit in units {
+        match unit {
+            AnnotatedCompiledUnit::Script(AnnotatedCompiledScript {
+                loc: _loc,
+                named_script: script,
+                function_info,
+            }) => {
+                let expanded_script = match eprog.scripts.remove(&script.name) {
+                    Some(s) => s,
+                    None => {
+                        env.error(
+                            &env.unknown_loc(),
+                            &format!(
+                                "[internal] cannot associate bytecode script `{}` with expansion AST",
+                                script.name
+                            )
+                        );
+                        return;
+                    },
+                };
+
+                // Convert the script into a module.
+                let address = E::Address::Numerical(
+                    None,
+                    sp(expanded_script.loc, NumericalAddress::DEFAULT_ERROR_ADDRESS),
+                );
+                let ident = sp(
+                    expanded_script.loc,
+                    ModuleIdent_::new(address, ParserModuleName(expanded_script.function_name.0)),
+                );
+                let mut function_infos = UniqueMap::new();
+                function_infos
+                    .add(expanded_script.function_name, function_info)
+                    .unwrap();
+
+                let expanded_module = expansion_script_to_module(expanded_script);
+                let module = script_into_module(script.script);
+                script_modules.push((
+                    ident,
+                    expanded_module,
+                    module,
+                    script.source_map,
+                    function_infos,
+                ));
+            },
+            _ => {},
+        }
+    }
+
+    for (module_count, (module_id, expanded_module, compiled_module, source_map, function_infos)) in
+        modules.into_iter().enumerate()
+    {
+        let loc = builder.to_loc(&expanded_module.loc);
+        let addr_bytes = builder.resolve_address(&loc, &module_id.value.address);
+        let module_name = ModuleName::from_address_bytes_and_name(
+            addr_bytes,
+            builder
+                .env
+                .symbol_pool()
+                .make(&module_id.value.module.0.value),
+        );
+        let module_id = ModuleId::new(module_count);
+        let mut module_translator = ModuleBuilder::new(&mut builder, module_id, module_name);
+        let compiled_module = BytecodeModule {
+            compiled_module,
+            source_map,
+            function_infos,
+        };
+        module_translator.translate(loc, expanded_module, Some(compiled_module));
+    }
+
+    for (module_count, (module_id, expanded_module, compiled_module, source_map, function_infos)) in
+        script_modules.into_iter().enumerate()
+    {
+        let loc = builder.to_loc(&expanded_module.loc);
+        let addr_bytes = builder.resolve_address(&loc, &module_id.value.address);
+        let module_name = ModuleName::from_address_bytes_and_name(
+            addr_bytes,
+            builder
+                .env
+                .symbol_pool()
+                .make(&module_id.value.module.0.value),
+        );
+        let module_id = ModuleId::new(module_count);
+        let mut module_translator = ModuleBuilder::new(&mut builder, module_id, module_name);
+        let compiled_module = BytecodeModule {
+            compiled_module,
+            source_map,
+            function_infos,
+        };
+        module_translator.translate(loc, expanded_module, Some(compiled_module));
+    }
+
+    // Populate GlobalEnv with model-level information
+    builder.populate_env();
+
+    // After all specs have been processed, warn about any unused schemas.
+    builder.warn_unused_schemas();
+}
+
+#[allow(deprecated)]
+pub fn run_spec_checker(
+    env: &mut GlobalEnv,
+    units: Vec<AnnotatedCompiledUnit>,
+    mut eprog: E::Program,
+) {
     let mut builder = ModelBuilder::new(env);
 
     // Merge the compiled units with source ASTs, preserving the order of the compiled

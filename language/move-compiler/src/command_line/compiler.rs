@@ -196,6 +196,41 @@ impl<'a> Compiler<'a> {
         self
     }
 
+    pub fn run_with_sources<const TARGET: Pass>(
+        self,
+        targets_sources: Vec<String>,
+        deps_source: Vec<String>,
+    ) -> anyhow::Result<(
+        FilesSourceText,
+        Result<(CommentMap, SteppedCompiler<'a, TARGET>), Diagnostics>,
+    )> {
+        let Self {
+            maps,
+            targets,
+            deps,
+            interface_files_dir_opt: _interface_files_dir_opt,
+            pre_compiled_lib,
+            compiled_module_named_address_mapping: _compiled_module_named_address_mapping,
+            flags,
+        } = self;
+        let mut compilation_env = CompilationEnv::new(flags);
+        let (source_text, pprog_and_comments_res) = parse_source_program(
+            &mut compilation_env,
+            maps,
+            targets,
+            deps,
+            targets_sources,
+            deps_source,
+        )?;
+        let res: Result<_, Diagnostics> = pprog_and_comments_res.and_then(|(pprog, comments)| {
+            SteppedCompiler::new_at_parser(compilation_env, pre_compiled_lib, pprog)
+                .run::<TARGET>()
+                .map(|compiler| (comments, compiler))
+        });
+        Ok((source_text, res))
+    }
+
+
     pub fn run<const TARGET: Pass>(
         self,
     ) -> anyhow::Result<(

@@ -25,10 +25,11 @@ use move_vm_types::{
     values::{GlobalValue, Value},
 };
 use std::{borrow::Borrow, sync::Arc};
+use crate::data_cache::TransactionCache;
 
-pub struct Session<'r, 'l> {
+pub struct Session<'r, 'l, C> {
     pub(crate) move_vm: &'l MoveVM,
-    pub(crate) data_cache: TransactionDataCache<'r>,
+    pub(crate) data_cache: C,
     pub(crate) native_extensions: NativeContextExtensions<'r>,
 }
 
@@ -43,7 +44,7 @@ pub struct SerializedReturnValues {
     pub return_values: Vec<(Vec<u8>, MoveTypeLayout)>,
 }
 
-impl<'r, 'l> Session<'r, 'l> {
+impl<'r, 'l, C: TransactionCache> Session<'r, 'l, C> {
     /// Execute a Move function with the given arguments. This is mainly designed for an external
     /// environment to invoke system logic written in Move.
     ///
@@ -262,6 +263,7 @@ impl<'r, 'l> Session<'r, 'l> {
             .map_err(|e| e.finish(Location::Undefined))
     }
 
+    /*
     pub fn finish_with_custom_effects<Resource>(
         self,
         resource_converter: &dyn Fn(Value, MoveTypeLayout) -> PartialVMResult<Resource>,
@@ -270,6 +272,7 @@ impl<'r, 'l> Session<'r, 'l> {
             .into_custom_effects(resource_converter, self.move_vm.runtime.loader())
             .map_err(|e| e.finish(Location::Undefined))
     }
+     */
 
     /// Same like `finish`, but also extracts the native context extensions from the session.
     pub fn finish_with_extensions(
@@ -286,6 +289,7 @@ impl<'r, 'l> Session<'r, 'l> {
         Ok((change_set, events, native_extensions))
     }
 
+    /*
     pub fn finish_with_extensions_with_custom_effects<Resource>(
         self,
         resource_converter: &dyn Fn(Value, MoveTypeLayout) -> PartialVMResult<Resource>,
@@ -304,6 +308,7 @@ impl<'r, 'l> Session<'r, 'l> {
             .map_err(|e| e.finish(Location::Undefined))?;
         Ok((change_set, events, native_extensions))
     }
+     */
 
     /// Try to load a resource from remote storage and create a corresponding GlobalValue
     /// that is owned by the data store.

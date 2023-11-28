@@ -2,6 +2,7 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data_cache::TransactionCache;
 use crate::{
     config::VMConfig, data_cache::TransactionDataCache, native_extensions::NativeContextExtensions,
     native_functions::NativeFunction, runtime::VMRuntime, session::Session,
@@ -51,7 +52,10 @@ impl MoveVM {
     ///     cases where this may not be necessary, with the most notable one being the common module
     ///     publishing flow: you can keep using the same Move VM if you publish some modules in a Session
     ///     and apply the effects to the storage when the Session ends.
-    pub fn new_session<'r>(&self, remote: &'r dyn MoveResolver) -> Session<'r, '_> {
+    pub fn new_session<'r>(
+        &self,
+        remote: &'r dyn MoveResolver,
+    ) -> Session<'r, '_, TransactionDataCache<'r>> {
         self.new_session_with_extensions(remote, NativeContextExtensions::default())
     }
 
@@ -60,7 +64,7 @@ impl MoveVM {
         &self,
         remote: &'r dyn MoveResolver,
         native_extensions: NativeContextExtensions<'r>,
-    ) -> Session<'r, '_> {
+    ) -> Session<'r, '_, TransactionDataCache<'r>> {
         Session {
             move_vm: self,
             data_cache: TransactionDataCache::new(remote),

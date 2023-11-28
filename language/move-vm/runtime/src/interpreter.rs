@@ -31,6 +31,7 @@ use move_vm_types::{
     views::TypeView,
 };
 use std::{cmp::min, collections::VecDeque, fmt::Write, sync::Arc};
+use crate::data_cache::TransactionCache;
 
 macro_rules! debug_write {
     ($($toks: tt)*) => {
@@ -88,7 +89,7 @@ impl Interpreter {
         function: Arc<Function>,
         ty_args: Vec<Type>,
         args: Vec<Value>,
-        data_store: &mut TransactionDataCache,
+        data_store: &mut impl TransactionCache,
         gas_meter: &mut impl GasMeter,
         extensions: &mut NativeContextExtensions,
         loader: &Loader,
@@ -112,7 +113,7 @@ impl Interpreter {
     fn execute_main(
         mut self,
         loader: &Loader,
-        data_store: &mut TransactionDataCache,
+        data_store: &mut impl TransactionCache,
         gas_meter: &mut impl GasMeter,
         extensions: &mut NativeContextExtensions,
         function: Arc<Function>,
@@ -342,7 +343,7 @@ impl Interpreter {
     fn call_native(
         &mut self,
         resolver: &Resolver,
-        data_store: &mut TransactionDataCache,
+        data_store: &mut impl TransactionCache,
         gas_meter: &mut impl GasMeter,
         extensions: &mut NativeContextExtensions,
         function: Arc<Function>,
@@ -372,7 +373,7 @@ impl Interpreter {
     fn call_native_impl(
         &mut self,
         resolver: &Resolver,
-        data_store: &mut TransactionDataCache,
+        data_store: &mut impl TransactionCache,
         gas_meter: &mut impl GasMeter,
         extensions: &mut NativeContextExtensions,
         function: Arc<Function>,
@@ -537,7 +538,7 @@ impl Interpreter {
     /// Loads a resource from the data store and return the number of bytes read from the storage.
     fn load_resource<'c>(
         loader: &Loader,
-        data_store: &'c mut TransactionDataCache,
+        data_store: &'c mut impl TransactionCache,
         gas_meter: &mut impl GasMeter,
         addr: AccountAddress,
         ty: &Type,
@@ -564,7 +565,7 @@ impl Interpreter {
         is_mut: bool,
         is_generic: bool,
         loader: &Loader,
-        data_store: &mut TransactionDataCache,
+        data_store: &mut impl TransactionCache,
         gas_meter: &mut impl GasMeter,
         addr: AccountAddress,
         ty: &Type,
@@ -585,7 +586,7 @@ impl Interpreter {
         &mut self,
         is_generic: bool,
         loader: &Loader,
-        data_store: &mut TransactionDataCache,
+        data_store: &mut impl TransactionCache,
         gas_meter: &mut impl GasMeter,
         addr: AccountAddress,
         ty: &Type,
@@ -602,7 +603,7 @@ impl Interpreter {
         &mut self,
         is_generic: bool,
         loader: &Loader,
-        data_store: &mut TransactionDataCache,
+        data_store: &mut impl TransactionCache,
         gas_meter: &mut impl GasMeter,
         addr: AccountAddress,
         ty: &Type,
@@ -632,7 +633,7 @@ impl Interpreter {
         &mut self,
         is_generic: bool,
         loader: &Loader,
-        data_store: &mut TransactionDataCache,
+        data_store: &mut impl TransactionCache,
         gas_meter: &mut impl GasMeter,
         addr: AccountAddress,
         ty: &Type,
@@ -1122,7 +1123,7 @@ impl Frame {
         &mut self,
         resolver: &Resolver,
         interpreter: &mut Interpreter,
-        data_store: &mut TransactionDataCache,
+        data_store: &mut impl TransactionCache,
         gas_meter: &mut impl GasMeter,
     ) -> VMResult<ExitCode> {
         self.execute_code_impl(resolver, interpreter, data_store, gas_meter)
@@ -1741,7 +1742,7 @@ impl Frame {
         &mut self,
         resolver: &Resolver,
         interpreter: &mut Interpreter,
-        data_store: &mut TransactionDataCache,
+        data_store: &mut impl TransactionCache,
         gas_meter: &mut impl GasMeter,
     ) -> PartialVMResult<ExitCode> {
         use SimpleInstruction as S;

@@ -25,6 +25,7 @@ use std::{
     fmt::Write,
     sync::Arc,
 };
+use crate::data_cache::TransactionCache;
 
 pub type UnboxedNativeFunction = dyn Fn(&mut NativeContext, Vec<Type>, VecDeque<Value>) -> PartialVMResult<NativeResult>
     + Send
@@ -92,18 +93,18 @@ impl NativeFunctions {
     }
 }
 
-pub struct NativeContext<'a, 'b, 'c> {
+pub struct NativeContext<'a, 'b> {
     interpreter: &'a mut Interpreter,
-    data_store: &'a mut TransactionDataCache<'c>,
+    data_store: &'a mut dyn TransactionCache,
     resolver: &'a Resolver<'a>,
     extensions: &'a mut NativeContextExtensions<'b>,
     gas_balance: InternalGas,
 }
 
-impl<'a, 'b, 'c> NativeContext<'a, 'b, 'c> {
+impl<'a, 'b> NativeContext<'a, 'b> {
     pub(crate) fn new(
         interpreter: &'a mut Interpreter,
-        data_store: &'a mut TransactionDataCache<'c>,
+        data_store: &'a mut dyn TransactionCache,
         resolver: &'a Resolver<'a>,
         extensions: &'a mut NativeContextExtensions<'b>,
         gas_balance: InternalGas,
@@ -118,7 +119,7 @@ impl<'a, 'b, 'c> NativeContext<'a, 'b, 'c> {
     }
 }
 
-impl<'a, 'b, 'c> NativeContext<'a, 'b, 'c> {
+impl<'a, 'b> NativeContext<'a, 'b> {
     pub fn print_stack_trace<B: Write>(&self, buf: &mut B) -> PartialVMResult<()> {
         self.interpreter
             .debug_print_stack_trace(buf, self.resolver.loader())

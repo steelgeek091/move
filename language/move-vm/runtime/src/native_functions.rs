@@ -24,6 +24,7 @@ use std::{
     fmt::Write,
     sync::Arc,
 };
+use move_binary_format::CompiledModule;
 use crate::data_cache::TransactionCache;
 
 pub type UnboxedNativeFunction = dyn Fn(&mut NativeContext, Vec<Type>, VecDeque<Value>) -> PartialVMResult<NativeResult>
@@ -215,5 +216,15 @@ impl<'a, 'b> NativeContext<'a, 'b> {
 
     pub fn gas_balance(&self) -> InternalGas {
         self.gas_balance
+    }
+
+    pub fn verify_module_bundle_for_publication(
+        &self,
+        modules: &[CompiledModule],
+    ) -> PartialVMResult<()> {
+        self.resolver
+            .loader()
+            .verify_module_bundle_for_publication(modules, self.data_store)
+            .map_err(|e| e.to_partial())
     }
 }

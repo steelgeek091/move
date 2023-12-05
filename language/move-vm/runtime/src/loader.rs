@@ -2,6 +2,7 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data_cache::TransactionCache;
 use crate::{
     config::VMConfig,
     logging::expect_no_verification_errors,
@@ -40,7 +41,6 @@ use std::{
     sync::Arc,
 };
 use tracing::error;
-use crate::data_cache::TransactionCache;
 
 type ScriptHash = [u8; 32];
 
@@ -1015,7 +1015,7 @@ impl Loader {
     pub fn verify_module_bundle_for_publication(
         &self,
         modules: &[CompiledModule],
-        data_store: &mut impl TransactionCache,
+        data_store: &(impl TransactionCache + ?Sized),
     ) -> VMResult<()> {
         fail::fail_point!("verifier-failpoint-1", |_| { Ok(()) });
 
@@ -1052,7 +1052,7 @@ impl Loader {
         module: &CompiledModule,
         bundle_verified: &BTreeMap<ModuleId, CompiledModule>,
         bundle_unverified: &BTreeSet<ModuleId>,
-        data_store: &impl TransactionCache,
+        data_store: &(impl TransactionCache + ?Sized),
     ) -> VMResult<()> {
         // Performs all verification steps to load the module without loading it, i.e., the new
         // module will NOT show up in `module_cache`. In the module republishing case, it means
@@ -1596,11 +1596,11 @@ impl Loader {
                 "Unexpected TyParam type after translating from TypeTag to Type".to_string(),
             )),
 
-            Type::Vector(ty) => {
-                AbilitySet::polymorphic_abilities(AbilitySet::VECTOR, vec![false], vec![
-                    self.abilities(ty)?
-                ])
-            },
+            Type::Vector(ty) => AbilitySet::polymorphic_abilities(
+                AbilitySet::VECTOR,
+                vec![false],
+                vec![self.abilities(ty)?],
+            ),
             Type::Struct(idx) => Ok(self.module_cache.read().struct_at(*idx).abilities),
             Type::StructInstantiation(idx, type_args) => {
                 let struct_type = self.module_cache.read().struct_at(*idx);

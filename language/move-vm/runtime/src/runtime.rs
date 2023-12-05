@@ -34,7 +34,7 @@ use std::{borrow::Borrow, collections::BTreeSet, sync::Arc};
 use crate::data_cache::TransactionCache;
 
 /// An instantiation of the MoveVM.
-pub(crate) struct VMRuntime {
+pub struct VMRuntime {
     loader: Loader,
 }
 
@@ -497,7 +497,7 @@ impl VMRuntime {
         )
     }
 
-    pub(crate) fn loader(&self) -> &Loader {
+    pub fn loader(&self) -> &Loader {
         &self.loader
     }
 }

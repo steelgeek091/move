@@ -24,7 +24,6 @@ use move_binary_format::{
         ModuleHandleIndex, Signature, SignatureIndex, Visibility,
     },
 };
-use move_compiler::expansion::ast::{Address, ModuleDefinition};
 use move_compiler::{
     self,
     compiled_unit::{self, AnnotatedCompiledScript, AnnotatedCompiledUnit},

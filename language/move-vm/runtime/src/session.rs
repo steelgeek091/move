@@ -2,9 +2,9 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{
-    data_cache::TransactionDataCache, loader::LoadedFunction, move_vm::MoveVM,
-    native_extensions::NativeContextExtensions,
+use crate::data_cache::TransactionCache;
+use crate::{loader::LoadedFunction, move_vm::MoveVM,
+            native_extensions::NativeContextExtensions,
 };
 use move_binary_format::{
     compatibility::Compatibility,
@@ -13,7 +13,7 @@ use move_binary_format::{
 };
 use move_core_types::{
     account_address::AccountAddress,
-    effects::{ChangeSet, Changes, Event},
+    effects::{ChangeSet, Event},
     gas_algebra::NumBytes,
     identifier::IdentStr,
     language_storage::{ModuleId, TypeTag},
@@ -22,15 +22,15 @@ use move_core_types::{
 use move_vm_types::{
     gas::GasMeter,
     loaded_data::runtime_types::{CachedStructIndex, StructType, Type},
-    values::{GlobalValue, Value},
+    values::GlobalValue,
 };
 use std::{borrow::Borrow, sync::Arc};
-use crate::data_cache::TransactionCache;
+use crate::runtime::VMRuntime;
 
 pub struct Session<'r, 'l, C> {
-    pub(crate) move_vm: &'l MoveVM,
-    pub(crate) data_cache: C,
-    pub(crate) native_extensions: NativeContextExtensions<'r>,
+    pub move_vm: &'l MoveVM,
+    pub data_cache: C,
+    pub native_extensions: NativeContextExtensions<'r>,
 }
 
 /// Serialized return values from function/script execution
@@ -437,6 +437,14 @@ impl<'r, 'l, C: TransactionCache> Session<'r, 'l, C> {
 
     pub fn get_move_vm(&self) -> &'l MoveVM {
         self.move_vm
+    }
+
+    pub fn get_data_store(&mut self) -> &mut dyn TransactionCache {
+        &mut self.data_cache
+    }
+
+    pub fn runtime(&self) -> &VMRuntime {
+        &self.move_vm.runtime
     }
 }
 

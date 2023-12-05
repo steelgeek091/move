@@ -18,7 +18,7 @@ use move_core_types::{
 use std::{collections::BTreeSet, sync::Arc};
 
 pub struct MoveVM {
-    pub(crate) runtime: VMRuntime,
+    pub runtime: VMRuntime,
 }
 
 impl MoveVM {
@@ -69,6 +69,18 @@ impl MoveVM {
             move_vm: self,
             data_cache: TransactionDataCache::new(remote),
             native_extensions,
+        }
+    }
+
+    pub fn new_session_with_cache_and_extensions<'r, D: TransactionCache>(
+        &self,
+        data_cache: D,
+        extensions: NativeContextExtensions<'r>,
+    ) -> Session<'r, '_, D> {
+        Session {
+            move_vm: self,
+            data_cache,
+            native_extensions: extensions
         }
     }
 

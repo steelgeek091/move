@@ -2,9 +2,8 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{
-    data_cache::TransactionDataCache, interpreter::Interpreter, loader::Resolver,
-    native_extensions::NativeContextExtensions,
+use crate::{interpreter::Interpreter, loader::Resolver,
+            native_extensions::NativeContextExtensions,
 };
 use move_binary_format::errors::{
     ExecutionState, Location, PartialVMError, PartialVMResult, VMResult,

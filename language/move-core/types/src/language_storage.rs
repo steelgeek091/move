@@ -153,6 +153,7 @@ impl StructTag {
             generics.push('<');
             generics.push_str(&first_ty.to_canonical_string());
             for ty in self.type_params.iter().skip(1) {
+                generics.push(',');
                 generics.push_str(&ty.to_canonical_string())
             }
             generics.push('>');

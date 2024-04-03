@@ -18,6 +18,7 @@ use crate::{
 use move_ir_types::location::*;
 use state::*;
 use std::collections::BTreeMap;
+use crate::shared::ast_debug::{AstDebug, AstWriter, print_verbose};
 
 pub mod state;
 
@@ -120,6 +121,7 @@ pub fn verify(
 ) -> BTreeMap<Label, LocalStates> {
     let initial_state = LocalStates::initial(&signature.parameters, locals);
     let mut locals_safety = LocalsSafety::new(struct_declared_abilities, locals, signature);
+    print_verbose(cfg);
     let (final_state, ds) = locals_safety.analyze_function(cfg, initial_state);
     compilation_env.add_diags(ds);
     final_state

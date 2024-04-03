@@ -16,6 +16,7 @@ use crate::{
 use move_ir_types::location::*;
 use state::*;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use crate::shared::ast_debug::print_verbose;
 
 mod state;
 
@@ -73,6 +74,7 @@ fn analyze(
     cfg: &mut BlockCFG,
     infinite_loop_starts: &BTreeSet<Label>,
 ) -> (FinalInvariants, PerCommandStates) {
+    print_verbose(cfg);
     let reverse = &mut ReverseBlockCFG::new(cfg, infinite_loop_starts);
     let initial_state = LivenessState::initial();
     let mut liveness = Liveness::new(reverse);

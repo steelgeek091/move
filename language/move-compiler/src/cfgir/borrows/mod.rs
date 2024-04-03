@@ -12,6 +12,7 @@ use crate::{
 use move_ir_types::location::*;
 use state::{Value, *};
 use std::collections::BTreeMap;
+use crate::shared::ast_debug::print_verbose;
 
 mod state;
 
@@ -92,6 +93,7 @@ pub fn verify(
     initial_state.bind_arguments(&signature.parameters);
     let mut safety = BorrowSafety::new(locals);
     initial_state.canonicalize_locals(&safety.local_numbers);
+    print_verbose(cfg);
     let (final_state, ds) = safety.analyze_function(cfg, initial_state);
     compilation_env.add_diags(ds);
     final_state

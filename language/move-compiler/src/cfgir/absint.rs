@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::cfg::CFG;
-use crate::{diagnostics::Diagnostics, hlir::ast::*};
+use crate::{cfgir, diagnostics::Diagnostics, hlir::ast::*};
 use std::collections::BTreeMap;
+use std::fmt::Debug;
 
 /// Trait for finite-height abstract domains. Infinite height domains would require a more complex
 /// trait with widening and a partial order.
@@ -85,19 +86,26 @@ pub trait AbstractInterpreter: TransferFunctions {
         &mut self,
         cfg: &dyn CFG,
         initial_state: Self::State,
-    ) -> (BTreeMap<Label, Self::State>, Diagnostics) {
+    ) -> (BTreeMap<Label, Self::State>, Diagnostics) where <Self as TransferFunctions>::State: Debug {
         let mut inv_map: InvariantMap<Self::State> = InvariantMap::new();
         let start = cfg.start_block();
         let mut next_block = Some(start);
 
+        // 循环处理每个基本块
         while let Some(block_label) = next_block {
+            println!("analyze_function process block_label {:?}, inv_map {:?}", block_label, inv_map.keys());
+
             let block_invariant = inv_map
                 .entry(block_label)
-                .or_insert_with(|| BlockInvariant {
+                .or_insert_with(||  {
+                    println!("inv_map.entry.or_insert_with");
+                    BlockInvariant {
                     pre: initial_state.clone(),
                     post: BlockPostcondition::Unprocessed,
-                });
+                }});
 
+            //println!("start label {:?} state {:?}", block_label, block_invariant.pre);
+            // 执行 transfer 函数处理基本块
             let (post_state, errors) = self.execute_block(cfg, &block_invariant.pre, block_label);
             block_invariant.post = if errors.is_empty() {
                 BlockPostcondition::Success
@@ -105,11 +113,14 @@ pub trait AbstractInterpreter: TransferFunctions {
                 BlockPostcondition::Error(errors)
             };
 
+            //println!("label processed, state {:?}", post_state);
+
             // propagate postcondition of this block to successor blocks
             let mut next_block_candidate = cfg.next_block(block_label);
-            for next_block_id in cfg.successors(block_label) {
-                match inv_map.get_mut(next_block_id) {
-                    Some(next_block_invariant) => {
+            for next_block_id in cfg.successors(block_label) {  // 找到当前基本块的每个后继
+                match inv_map.get_mut(next_block_id) { // 在 inv_map 中查找后继基本块
+                    Some(next_block_invariant) => {  // 如果 inv_map 中存在后继基本块
+                        println!("inv_map got next_block_id {:?}", next_block_id);
                         let join_result = {
                             let old_pre = &mut next_block_invariant.pre;
                             old_pre.join(&post_state)
@@ -131,8 +142,11 @@ pub trait AbstractInterpreter: TransferFunctions {
                         }
                     },
                     None => {
+                        println!("inv_map insert next_block_id {:?}", next_block_id);
+                        // 如果 inv_map 中不存在后继基本块，就将当前基本块的后继加入到 inv_map
                         // Haven't visited the next block yet. Use the post of the current block as
                         // its pre
+                        // 还没访问后继，使用当前基本块的 Post 当作它的 Pre
                         inv_map.insert(*next_block_id, BlockInvariant {
                             pre: post_state.clone(),
                             post: BlockPostcondition::Success,

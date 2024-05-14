@@ -851,21 +851,35 @@ impl BorrowState {
     //**********************************************************************************************
 
     pub fn canonicalize_locals(&mut self, local_numbers: &UniqueMap<Var, usize>) {
+        // 取得所有引用 ID 的副本
         let mut all_refs = self.borrows.all_refs();
         let mut id_map = BTreeMap::new();
+        // 迭代所有局部变量
         for (_, local_, value) in &self.locals {
+            // 如果是一个引用变量
             if let Value::Ref(id) = value {
+                // 从 所有引用 ID 的副本 中删除引用 ID
+                // 确保 所有引用 ID 的副本 中存在这个引用 ID
                 assert!(all_refs.remove(id));
+                // 在 id_map 中插入: 旧的局部变量引用 ID -> RefID::new(局部变量序号)
                 id_map.insert(*id, RefID::new(*local_numbers.get_(local_).unwrap() + 1));
             }
         }
+        // 在 所有引用 ID 的副本 中删除 LOCAL_ROOT 即引用 ID 为 0 的引用
         all_refs.remove(&Self::LOCAL_ROOT);
+        // 确保此时 所有引用 ID 的副本 已经为空
+        // 因为上面循环中已经删除所有是引用类型的局部变量 ID，所以此时肯定为空
         assert!(all_refs.is_empty());
 
+        // 从 id_map 中取得刚才生成的新的局部变量的 ID 集合
+        // 为 locals 中局部变量设置新的引用 ID
         self.locals
             .iter_mut()
             .for_each(|(_, _, v)| v.remap_refs(&id_map));
+        // 从 id_map 中取得刚才生成的新的局部变量的 ID 集合
+        // 为所有借用 局部变量的引用，替换为新的引用 ID
         self.borrows.remap_refs(&id_map);
+        // 设置下一个引用 ID 是当前局部变量的长度 + 1
         self.next_id = self.locals.len() + 1;
     }
 

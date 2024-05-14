@@ -89,11 +89,22 @@ pub fn verify(
 ) -> BTreeMap<Label, BorrowState> {
     // check for existing errors
     let has_errors = compilation_env.has_errors();
+    // 初始化借用状态对象
+    // 初始化所有 locals (参数和局部变量) 状态为 NonRef
     let mut initial_state = BorrowState::initial(locals, acquires.clone(), has_errors);
+    // 在借用状态中，设置函数参数的初始状态。
+    // 如果参数类型是引用，则这个参数的初始值为一个新的引用: Value::Ref(self.declare_new_ref())
+    // 如果是基本类型，则这个参数的初始值为 Value::NoneRef
+    // 最后设置每个参数的初始值
     initial_state.bind_arguments(&signature.parameters);
     let mut safety = BorrowSafety::new(locals);
+    // 在借用状态中，设置函数中局部变量(包括参数)的初始状态。
+    // 并初始化所有局部变量(包括参数)的引用 ID
     initial_state.canonicalize_locals(&safety.local_numbers);
     print_verbose(cfg);
+    // 在 CFG 中执行传递函数和交汇函数。
+    // 在多轮 CFG 的迭代中，如果每个基本块的 IN 值集不再发生变化，就达到了一个 Fixed Point，退出迭代。
+    // 在执行传递函数过程中，会检查引用的创建和使用是否违反规则，如果违反则报错。
     let (final_state, ds) = safety.analyze_function(cfg, initial_state);
     compilation_env.add_diags(ds);
     final_state

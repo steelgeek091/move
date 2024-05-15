@@ -120,6 +120,8 @@ pub trait AbstractInterpreter: TransferFunctions {
             //println!("label processed, state {:?}", post_state);
 
             // propagate postcondition of this block to successor blocks
+            // 一个基本块的传递函数执行完成后，传播执行后的 OUT 值到它的每个后继，作为每个后继的 IN
+            // 这样在执行后继基本块传递函数的时候，就直接使用 block_invariant.pre 作为其 IN 值集合
             let mut next_block_candidate = cfg.next_block(block_label);
             for next_block_id in cfg.successors(block_label) {  // 找到当前基本块的每个后继
                 // 在 inv_map 中查找后继基本块

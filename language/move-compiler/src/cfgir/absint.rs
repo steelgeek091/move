@@ -106,7 +106,11 @@ pub trait AbstractInterpreter: TransferFunctions {
 
             //println!("start label {:?} state {:?}", block_label, block_invariant.pre);
             // 执行 transfer 函数处理基本块
+            // cfg 当前函数的基本块，用于在执行传递函数时从中查找指令
+            // block_invariant.pre 是基本块的 IN 值集合
+            // block_label 是当前基本块的 label
             let (post_state, errors) = self.execute_block(cfg, &block_invariant.pre, block_label);
+            // 返回值 post_state 是基本块的 OUT 值集
             block_invariant.post = if errors.is_empty() {
                 BlockPostcondition::Success
             } else {
@@ -118,13 +122,45 @@ pub trait AbstractInterpreter: TransferFunctions {
             // propagate postcondition of this block to successor blocks
             let mut next_block_candidate = cfg.next_block(block_label);
             for next_block_id in cfg.successors(block_label) {  // 找到当前基本块的每个后继
-                match inv_map.get_mut(next_block_id) { // 在 inv_map 中查找后继基本块
+                // 在 inv_map 中查找后继基本块
+                // 如果能找到，说明两个基本块有共同的后继基本块
+                // 例如有 0, 1, 2, 3 共 4 个基本块
+                //     --0--
+                //   /       \
+                //  /         \
+                // 1           2
+                //  \         /
+                //   \       /
+                //     --3--
+                // 执行了 0 的传递函数，循环 0 的所有后继 1 和 2，并从 inv_map 查找，发现都找不到，就把 1 和 2 加入到 inv_map
+                // 执行了 1 的传递函数，循环 1 的所有后继 3，并从 inv_map 查找，发现都找不到，就把 3 加入到 inv_map
+                // 执行了 2 的传递函数，循环 2 的所有后继 3，并从 inv_map 查找，找到了 3，说明要在 3 号基本块执行交汇函数
+                // 然后用 3 的 IN 值集，也就是 next_block_invariant.pre
+                // 而且因为在 insert 到 inv_map 时，设置了 next_block_invariant.pre 是当前已处理基本块（1号基本块）的 post（复制了一份）
+                // 所以这里是用了 1 的 OUT 值集 和 2 的 OUT 值集做交汇运算
+                // 结果保存在了 3 的 IN 值集当中
+                match inv_map.get_mut(next_block_id) {
                     Some(next_block_invariant) => {  // 如果 inv_map 中存在后继基本块
                         println!("inv_map got next_block_id {:?}", next_block_id);
                         let join_result = {
                             let old_pre = &mut next_block_invariant.pre;
                             old_pre.join(&post_state)
                         };
+                        // 接上面的内容：
+                        // 如果执行了交汇函数，1 和 2 的 OUT 值集交汇的结果发生了改变
+                        // 例如对于 liveness 的对比方式：
+                        // 1. 保存 1 的 out 值的集合，即 self.len() 当前的活跃变量列表的长度，作为 before
+                        // 2. 执行交汇函数，self.extend(基本块 2 的 out 值集)，
+                        // 3. 取得 self.len() 即交汇后的活跃变量列表的长度，作为 after
+                        // 4. 如果 before < after，则说明发生了变化
+                        // 5. 如果 before == after，则说明未发生变化
+                        // 1 和 2 的 OUT 值集交汇的结果是 3 的 IN
+                        // 如果 3 的 IN 发生了变化，同样说明 1 和 2 的 OUT 发生变化，需要重新计算
+                        // 那么发生变化的原因可能是在数据流中存在循环
+                        // 所以下面的代码中检测如果当前基本块和下一个基本块之间存在回边，则说明有循环存在，需要多次执行
+                        // cfg.is_back_edge(block_label, *next_block_id) => cfg.is_back_edge(2, 3)
+                        // next_block_candidate = Some(*next_block_id) => next_block_candidate = Some(3)
+                        // 需要代码测试是否如此
                         match join_result {
                             JoinResult::Unchanged => {
                                 // Pre is the same after join. Reanalyzing this block would produce
@@ -133,6 +169,8 @@ pub trait AbstractInterpreter: TransferFunctions {
                             JoinResult::Changed => {
                                 // If the cur->successor is a back edge, jump back to the beginning
                                 // of the loop, instead of the normal next block
+                                // 如果 cur->successor 是一个回变，就跳转回循环开始的地方
+                                // 而不是下一个基本块
                                 if cfg.is_back_edge(block_label, *next_block_id) {
                                     next_block_candidate = Some(*next_block_id);
                                 }
@@ -143,10 +181,10 @@ pub trait AbstractInterpreter: TransferFunctions {
                     },
                     None => {
                         println!("inv_map insert next_block_id {:?}", next_block_id);
-                        // 如果 inv_map 中不存在后继基本块，就将当前基本块的后继加入到 inv_map
+                        // 如果 inv_map 中不存在这个后继基本块，就将这个基本块的后继加入到 inv_map
                         // Haven't visited the next block yet. Use the post of the current block as
                         // its pre
-                        // 还没访问后继，使用当前基本块的 Post 当作它的 Pre
+                        // 还没访问这个后继基本块，使用当前基本块的 Post 当作它的 Pre
                         inv_map.insert(*next_block_id, BlockInvariant {
                             pre: post_state.clone(),
                             post: BlockPostcondition::Success,

@@ -34,6 +34,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     convert::TryInto,
 };
+use move_ir_types::ast::Metadata;
 
 type CollectedInfos = UniqueMap<FunctionName, CollectedInfo>;
 type CollectedInfo = (
@@ -247,6 +248,7 @@ fn module(
         constants,
         functions,
         synthetics: vec![],
+        metadata: Metadata::default(),
     };
     let deps: Vec<&F::CompiledModule> = vec![];
     let (module, source_map) = match move_ir_to_bytecode::compiler::compile_module(ir_module, deps)

@@ -2088,7 +2088,7 @@ fn parse_module_item(tokens: &mut Lexer) -> Result<String, ParseError<Loc, anyho
     let item_name = parse_name(tokens)?.to_string();
     Ok(format!(
         "{}::{}::{}",
-        module_address.short_str_lossless(),
+        module_address.to_hex_literal(),
         module_name,
         item_name
     ))

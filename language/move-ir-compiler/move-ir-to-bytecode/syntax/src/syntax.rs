@@ -2000,7 +2000,9 @@ fn parse_script(tokens: &mut Lexer) -> Result<Script, ParseError<Loc, anyhow::Er
 /*
 BNF:
 <metadata> -> kw_metadata LBrace <metadata_item>|^ RBrace
-<metadata_item> -> <metadata_key> Arrow <metadata_value> Colon <metadata_item>
+<metadata_item> -> <metadata_item_type> LBrace <metadata_key_value>|^ RBrace <metadata_item>
+<metadata_item_type> -> <ident>
+<metadata_key_value> -> <metadata_key> Arrow <metadata_value> Colon <metadata_key_value>
 <metadata_key> -> <module_ident>|<ident>
 <metadata_value> -> <exp>|<ident>
 

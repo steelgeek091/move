@@ -13,6 +13,7 @@ use move_core_types::{
 use move_symbol_pool::Symbol;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::{
     collections::{BTreeSet, HashSet, VecDeque},
     fmt,
@@ -83,6 +84,15 @@ pub struct ModuleIdent {
     pub address: AccountAddress,
 }
 
+pub type Metadata_ = Vec<(String, BTreeMap<String, Vec<Exp>>)>;
+pub type Metadata = Spanned<Metadata_>;
+
+impl Default for Metadata {
+    fn default() -> Self {
+        Spanned::unsafe_no_loc(vec![])
+    }
+}
+
 /// A Move module
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModuleDefinition {
@@ -106,6 +116,7 @@ pub struct ModuleDefinition {
     pub functions: Vec<(FunctionName, Function)>,
     /// the synthetic, specification variables the module defines.
     pub synthetics: Vec<SyntheticDefinition>,
+    pub metadata: Metadata,
 }
 
 /// Explicitly given dependency
@@ -828,6 +839,7 @@ impl ModuleDefinition {
         constants: Vec<Constant>,
         functions: Vec<(FunctionName, Function)>,
         synthetics: Vec<SyntheticDefinition>,
+        metadata: Metadata,
     ) -> Self {
         ModuleDefinition {
             loc,
@@ -839,6 +851,7 @@ impl ModuleDefinition {
             constants,
             functions,
             synthetics,
+            metadata,
         }
     }
 

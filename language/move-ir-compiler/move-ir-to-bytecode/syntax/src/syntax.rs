@@ -8,6 +8,7 @@ use move_command_line_common::files::FileHash;
 use move_core_types::{account_address::AccountAddress, u256};
 use move_ir_types::{ast::*, location::*, spec_language_ast::*};
 use move_symbol_pool::Symbol;
+use std::collections::BTreeMap;
 use std::{collections::BTreeSet, fmt, str::FromStr};
 
 // FIXME: The following simplified version of ParseError copied from
@@ -933,10 +934,13 @@ fn parse_field_bindings(
         let v = parse_var(tokens)?;
         Ok((f, v))
     } else {
-        Ok((f.clone(), Spanned {
-            loc: f.loc,
-            value: Var_(f.value.0),
-        }))
+        Ok((
+            f.clone(),
+            Spanned {
+                loc: f.loc,
+                value: Var_(f.value.0),
+            },
+        ))
     }
 }
 
@@ -1993,6 +1997,105 @@ fn parse_script(tokens: &mut Lexer) -> Result<Script, ParseError<Loc, anyhow::Er
     Ok(Script::new(loc, imports, vec![], vec![], main))
 }
 
+/*
+BNF:
+<metadata> -> kw_metadata LBrace <metadata_item>|^ RBrace
+<metadata_item> -> <metadata_item_type> LBrace <metadata_key_value>|^ RBrace <metadata_item>
+<metadata_item_type> -> <ident>
+<metadata_key_value> -> <metadata_key> Arrow <metadata_value> Colon <metadata_key_value>
+<metadata_key> -> <module_ident>|<ident>
+<metadata_value> -> <exp>|<ident>
+
+Example:
+metadata {
+    private_generics {
+        0x123::test::f1 -> [0,2,3];
+        0x123::test::f2 -> [0,3];
+    }
+    data_struct {
+        0x123::test:S1 -> true;
+        0x123::test:S2 -> true;
+    }
+    data_struct_func {
+        0x123::test::f3 -> [0,1];
+        0x123::test::f4 -> [2,3];
+    }
+    some_metadata_type {
+        key1 -> value1;
+    }
+}
+ */
+fn parse_metadata(tokens: &mut Lexer) -> Result<Metadata, ParseError<Loc, anyhow::Error>> {
+    let mut metadata = vec![];
+
+    let start_loc = tokens.start_loc();
+
+    consume_token(tokens, Tok::Metadata)?;
+    consume_token(tokens, Tok::LBrace)?;
+    while tokens.peek() != Tok::RBrace {
+        let mut single_metadata_map = BTreeMap::new();
+        let metadata_type = parse_name(tokens)?.to_string();
+        consume_token(tokens, Tok::LBrace)?;
+
+        while tokens.peek() != Tok::RBrace {
+            let tok = tokens.peek();
+            let metadata_key = if tok == Tok::AccountAddressValue {
+                parse_module_item(tokens)?
+            } else {
+                parse_name(tokens)?.to_string()
+            };
+
+            let mut vlist = vec![];
+
+            let tok = tokens.lookahead()?;
+            consume_token(tokens, Tok::Arrow)?;
+
+            if tok == Tok::LSquare {
+                tokens.advance()?;
+                while tokens.peek() != Tok::RSquare {
+                    let v = parse_unary_exp(tokens)?;
+                    if tokens.peek() != Tok::RSquare {
+                        consume_token(tokens, Tok::Comma)?;
+                    }
+                    vlist.push(v);
+                }
+                consume_token(tokens, Tok::RSquare)?;
+            } else {
+                if tokens.peek() == Tok::NameValue {
+                    let v = parse_name(tokens)?;
+                    let str_bytes = Exp_::byte_array(v.as_bytes().to_vec());
+                    vlist.push(str_bytes);
+                } else {
+                    vlist.push(parse_unary_exp(tokens)?);
+                }
+            }
+
+            consume_token(tokens, Tok::Semicolon)?;
+            single_metadata_map.insert(metadata_key, vlist);
+        }
+        consume_token(tokens, Tok::RBrace)?;
+        metadata.push((metadata_type.into(), single_metadata_map.into()));
+    }
+    consume_token(tokens, Tok::RBrace)?;
+    let end_loc = tokens.previous_end_loc();
+
+    Ok(spanned(tokens.file_hash(), start_loc, end_loc, metadata))
+}
+
+fn parse_module_item(tokens: &mut Lexer) -> Result<String, ParseError<Loc, anyhow::Error>> {
+    let module_address = parse_account_address(tokens)?;
+    consume_token(tokens, Tok::ColonColon)?;
+    let module_name = parse_name(tokens)?.to_string();
+    consume_token(tokens, Tok::ColonColon)?;
+    let item_name = parse_name(tokens)?.to_string();
+    Ok(format!(
+        "{}::{}::{}",
+        module_address.to_hex_literal(),
+        module_name,
+        item_name
+    ))
+}
+
 // StructDecl: StructDefinition_ = {
 //     "struct" <name_and_type_parameters:
 //     NameAndTypeFormals> ("has" <Ability> ("," <Ability)*)? "{" <data: Comma<FieldDecl>> "}"
@@ -2135,6 +2238,11 @@ fn is_struct_decl(tokens: &mut Lexer) -> Result<bool, ParseError<Loc, anyhow::Er
     Ok(t == Tok::Struct || (t == Tok::Native && tokens.lookahead()? == Tok::Struct))
 }
 
+fn is_metadata_decl(tokens: &mut Lexer) -> Result<bool, ParseError<Loc, anyhow::Error>> {
+    let t = tokens.peek();
+    Ok(t == Tok::Metadata)
+}
+
 fn parse_module(tokens: &mut Lexer) -> Result<ModuleDefinition, ParseError<Loc, anyhow::Error>> {
     let start_loc = tokens.start_loc();
     consume_token(tokens, Tok::Module)?;
@@ -2161,6 +2269,16 @@ fn parse_module(tokens: &mut Lexer) -> Result<ModuleDefinition, ParseError<Loc, 
         structs.push(parse_struct_decl(tokens)?);
     }
 
+    let mut metadata_list = vec![];
+    while is_metadata_decl(tokens)? {
+        let metadata = parse_metadata(tokens)?;
+        metadata_list.push(metadata);
+    }
+    let mut mt = Metadata::default();
+    if !metadata_list.is_empty() {
+        mt = metadata_list.first().unwrap().clone();
+    }
+
     let mut functions: Vec<(FunctionName, Function)> = vec![];
     while tokens.peek() != Tok::RBrace {
         functions.push(parse_function_decl(tokens)?);
@@ -2179,6 +2297,7 @@ fn parse_module(tokens: &mut Lexer) -> Result<ModuleDefinition, ParseError<Loc, 
         vec![],
         functions,
         synthetics,
+        mt,
     ))
 }
 

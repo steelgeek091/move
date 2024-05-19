@@ -12,6 +12,7 @@ use crate::{
 use move_ir_types::location::*;
 use state::{Value, *};
 use std::collections::BTreeMap;
+use crate::shared::ast_debug::display;
 
 mod state;
 
@@ -73,6 +74,9 @@ impl TransferFunctions for BorrowSafety {
         context
             .borrow_state
             .canonicalize_locals(context.local_numbers);
+        println!("\n\nexecute {:?} command {:?}", _lbl, display(cmd));
+        context.borrow_state.display();
+        println!("\n");
         context.get_diags()
     }
 }
@@ -86,6 +90,7 @@ pub fn verify(
     locals: &UniqueMap<Var, SingleType>,
     cfg: &super::cfg::BlockCFG,
 ) -> BTreeMap<Label, BorrowState> {
+    println!("\n\n!!!!!! borrows::verify start !!!!!!!");
     // check for existing errors
     let has_errors = compilation_env.has_errors();
     let mut initial_state = BorrowState::initial(locals, acquires.clone(), has_errors);
@@ -93,6 +98,7 @@ pub fn verify(
     let mut safety = BorrowSafety::new(locals);
     initial_state.canonicalize_locals(&safety.local_numbers);
     let (final_state, ds) = safety.analyze_function(cfg, initial_state);
+    println!("\n\n!!!!!! borrows::verify end !!!!!!!");
     compilation_env.add_diags(ds);
     final_state
 }

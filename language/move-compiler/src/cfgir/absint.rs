@@ -110,6 +110,8 @@ pub trait AbstractInterpreter: TransferFunctions {
             for next_block_id in cfg.successors(block_label) {
                 match inv_map.get_mut(next_block_id) {
                     Some(next_block_invariant) => {
+                        println!("    need to execute join function, current {:?}, next {:?}",
+                                 block_label, next_block_id);
                         let join_result = {
                             let old_pre = &mut next_block_invariant.pre;
                             old_pre.join(&post_state)
@@ -123,6 +125,7 @@ pub trait AbstractInterpreter: TransferFunctions {
                                 // If the cur->successor is a back edge, jump back to the beginning
                                 // of the loop, instead of the normal next block
                                 if cfg.is_back_edge(block_label, *next_block_id) {
+                                    println!("    loop found, current {:?}, next {:?}", block_label, next_block_id);
                                     next_block_candidate = Some(*next_block_id);
                                 }
                                 // Pre has changed, the post condition is now unknown for the block

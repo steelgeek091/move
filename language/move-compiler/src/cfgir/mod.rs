@@ -34,6 +34,7 @@ pub fn refine_inference_and_verify(
     infinite_loop_starts: &BTreeSet<Label>,
 ) {
     liveness::last_usage(compilation_env, locals, cfg, infinite_loop_starts);
+    // 所有基本块的入口处的活跃变量，即 IN 值集合
     let locals_states = locals::verify(
         compilation_env,
         struct_declared_abilities,

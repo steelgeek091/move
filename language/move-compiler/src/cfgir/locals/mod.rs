@@ -18,6 +18,7 @@ use crate::{
 use move_ir_types::location::*;
 use state::*;
 use std::collections::BTreeMap;
+use crate::shared::ast_debug::display;
 
 pub mod state;
 
@@ -104,7 +105,21 @@ impl<'a> TransferFunctions for LocalsSafety<'a> {
     ) -> Diagnostics {
         let mut context = Context::new(self, pre);
         command(&mut context, cmd);
+        print!("locals safety execute command {:?} {:?}\n",
+                 _lbl, display(cmd));
+        for (var, local_state) in context.local_states.iter() {
+            print!("    {:?} -> {:?}\n", var, state_to_str(local_state));
+        }
+        print!("\n\n");
         context.get_diags()
+    }
+}
+
+fn state_to_str(state: &LocalState) -> String {
+    match state {
+        LocalState::Unavailable(_, _) => "Unavailable".to_string(),
+        LocalState::Available(_) => "Available".to_string(),
+        LocalState::MaybeUnavailable { .. } => "MaybeUnavailable".to_string(),
     }
 }
 
@@ -118,9 +133,11 @@ pub fn verify(
     locals: &UniqueMap<Var, SingleType>,
     cfg: &super::cfg::BlockCFG,
 ) -> BTreeMap<Label, LocalStates> {
+    println!("\n\n!!!!!! locals::verify start !!!!!!!");
     let initial_state = LocalStates::initial(&signature.parameters, locals);
     let mut locals_safety = LocalsSafety::new(struct_declared_abilities, locals, signature);
     let (final_state, ds) = locals_safety.analyze_function(cfg, initial_state);
+    println!("\n!!!!!! locals::verify end !!!!!!!\n\n");
     compilation_env.add_diags(ds);
     final_state
 }
@@ -142,6 +159,7 @@ fn command(context: &mut Context, sp!(loc, cmd_): &Command) {
         },
         C::Abort(e) | C::IgnoreAndPop { exp: e, .. } | C::JumpIf { cond: e, .. } => exp(context, e),
 
+        // 返回命令执行时提示
         C::Return { exp: e, .. } => {
             exp(context, e);
             let mut diags = Diagnostics::new();
@@ -152,6 +170,7 @@ fn command(context: &mut Context, sp!(loc, cmd_): &Command) {
                     | LocalState::MaybeUnavailable { available, .. } => {
                         let ty = context.local_type(&local);
                         let abilities = ty.value.abilities(ty.loc);
+                        // 如果变量没有 drop ability
                         if !abilities.has_ability_(Ability_::Drop) {
                             let verb = match state {
                                 LocalState::Unavailable(_, _) => unreachable!(),
@@ -160,11 +179,14 @@ fn command(context: &mut Context, sp!(loc, cmd_): &Command) {
                             };
                             let available = *available;
                             let stmt = match display_var(local.value()) {
+                                // 如果是临时变量，提示值被创建但是未使用
                                 DisplayVar::Tmp => "The value is created but not used".to_owned(),
                                 DisplayVar::Orig(l) => {
                                     if context.signature.is_parameter(&local) {
+                                        // 是参数提示参数依然包含一个值
                                         format!("The parameter '{}' {} a value", l, verb,)
                                     } else {
+                                        // 是本地变量提示变量依然包含一个值
                                         format!("The local variable '{}' {} a value", l, verb,)
                                     }
                                 },
@@ -204,7 +226,9 @@ fn lvalue(context: &mut Context, sp!(loc, l_): &LValue) {
         L::Var(v, _) => {
             let ty = context.local_type(v);
             let abilities = ty.value.abilities(ty.loc);
+            // 如果类型没有 drop ability
             if !abilities.has_ability_(Ability_::Drop) {
+                // 查找这个变量之前的状态
                 let old_state = context.get_state(v);
                 match old_state {
                     LocalState::Unavailable(_, _) => (),
@@ -220,6 +244,8 @@ fn lvalue(context: &mut Context, sp!(loc, l_): &LValue) {
                             DisplayVar::Tmp => panic!("ICE invalid assign tmp local"),
                             DisplayVar::Orig(s) => s,
                         };
+                        // 如果一个变量作为左值，但是它包含了一个没有 drop ability 的值
+                        // 就提示用户增加 drop ability
                         let msg = format!(
                             "The variable {} a value due to this assignment. The value does not \
                              have the '{}' ability and must be used before you assign to this \
@@ -237,6 +263,7 @@ fn lvalue(context: &mut Context, sp!(loc, l_): &LValue) {
                     },
                 }
             }
+            // 如果这个变量有 drop ability 就设这个变量为 可用
             context.set_state(*v, LocalState::Available(*loc))
         },
         L::Unpack(_, _, fields) => fields.iter().for_each(|(_, l)| lvalue(context, l)),
@@ -249,8 +276,12 @@ fn exp(context: &mut Context, parent_e: &Exp) {
     match &parent_e.exp.value {
         E::Unit { .. } | E::Value(_) | E::Constant(_) | E::UnresolvedError => (),
 
+        // BorrowLocal 和 Copy 仅 use_local
+        // use_local() 中如果变量是 Unavailable 可 MaybeUnavailable
+        // 则根据不可用的原因提示用户：未被赋值和已经被移动做不同的提示
         E::BorrowLocal(_, var) | E::Copy { var, .. } => use_local(context, eloc, var),
 
+        // Move 则先 use_local，再设置变量为不可用，并设置不可用的原因是 Moved
         E::Move { var, .. } => {
             use_local(context, eloc, var);
             context.set_state(
@@ -298,6 +329,7 @@ fn use_local(context: &mut Context, loc: &Loc, local: &Var) {
     let state = context.get_state(local);
     match state {
         L::Available(_) => (),
+        // 在变量作为右值时，如果变量不可用，或可能不可用
         L::Unavailable(unavailable, unavailable_reason)
         | L::MaybeUnavailable {
             unavailable,
@@ -310,7 +342,9 @@ fn use_local(context: &mut Context, loc: &Loc, local: &Var) {
                 DisplayVar::Orig(s) => s,
             };
             match unavailable_reason {
+                // 因为未赋值的原因不可用
                 UnavailableReason::Unassigned => {
+                    // 提示用户赋值
                     let msg = format!(
                         "The variable '{}' {} not have a value. The variable must be assigned a \
                          value before being used.",
@@ -330,6 +364,7 @@ fn use_local(context: &mut Context, loc: &Loc, local: &Var) {
                         (unavailable, msg),
                     ));
                 },
+                // 因为被 Move 的原因不可用
                 UnavailableReason::Moved => {
                     let verb = match state {
                         LocalState::Available(_) => unreachable!(),
@@ -337,6 +372,7 @@ fn use_local(context: &mut Context, loc: &Loc, local: &Var) {
                         LocalState::MaybeUnavailable { .. } => "might have been",
                     };
                     let suggestion = format!("Suggestion: use 'copy {}' to avoid the move.", vstr);
+                    // 如果 loc
                     let reason = if *loc == unavailable {
                         "In a loop, this typically means it was moved in the first iteration, and \
                          is not available by the second iteration."

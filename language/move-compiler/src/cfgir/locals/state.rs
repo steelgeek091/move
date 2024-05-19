@@ -52,10 +52,12 @@ impl LocalStates {
         let mut states = LocalStates {
             local_states: UniqueMap::new(),
         };
+        // 初始化所有局部变量的为不可用
         for (var, _) in local_types.key_cloned_iter() {
             let local_state = LocalState::Unavailable(var.loc(), UnavailableReason::Unassigned);
             states.set_state(var, local_state)
         }
+        // 初始化所有参数为可用
         for (var, _) in function_arguments {
             let local_state = LocalState::Available(var.loc());
             states.set_state(*var, local_state)

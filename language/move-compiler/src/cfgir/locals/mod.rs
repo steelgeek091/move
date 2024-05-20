@@ -18,7 +18,7 @@ use crate::{
 use move_ir_types::location::*;
 use state::*;
 use std::collections::BTreeMap;
-use crate::shared::ast_debug::display;
+use crate::shared::ast_debug::{display, print_verbose};
 
 pub mod state;
 
@@ -134,6 +134,7 @@ pub fn verify(
     cfg: &super::cfg::BlockCFG,
 ) -> BTreeMap<Label, LocalStates> {
     println!("\n\n!!!!!! locals::verify start !!!!!!!");
+    print_verbose(cfg);
     let initial_state = LocalStates::initial(&signature.parameters, locals);
     let mut locals_safety = LocalsSafety::new(struct_declared_abilities, locals, signature);
     let (final_state, ds) = locals_safety.analyze_function(cfg, initial_state);

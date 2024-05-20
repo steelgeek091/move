@@ -5,6 +5,7 @@
 use super::cfg::CFG;
 use crate::{diagnostics::Diagnostics, hlir::ast::*};
 use std::collections::BTreeMap;
+use crate::shared::ast_debug::print_verbose;
 
 /// Trait for finite-height abstract domains. Infinite height domains would require a more complex
 /// trait with widening and a partial order.
@@ -118,16 +119,21 @@ pub trait AbstractInterpreter: TransferFunctions {
                         };
                         match join_result {
                             JoinResult::Unchanged => {
+                                println!("    join function [Unchanged]\n");
                                 // Pre is the same after join. Reanalyzing this block would produce
                                 // the same post
                             },
                             JoinResult::Changed => {
                                 // If the cur->successor is a back edge, jump back to the beginning
                                 // of the loop, instead of the normal next block
+                                println!("    join function [Change]");
+                                println!("    try to find back edge block_label {:?} next_block_id {:?} is_loop {:?}",
+                                         block_label, next_block_id, cfg.is_back_edge(block_label, *next_block_id));
                                 if cfg.is_back_edge(block_label, *next_block_id) {
                                     println!("    loop found, current {:?}, next {:?}", block_label, next_block_id);
                                     next_block_candidate = Some(*next_block_id);
                                 }
+                                println!("\n");
                                 // Pre has changed, the post condition is now unknown for the block
                                 next_block_invariant.post = BlockPostcondition::Unprocessed
                             },

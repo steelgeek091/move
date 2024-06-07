@@ -19,7 +19,7 @@ pub struct BorrowGraph<Loc: Copy, Lbl: Clone + Ord>(BTreeMap<RefID, Ref<Loc, Lbl
 // Impls
 //**************************************************************************************************
 
-impl<Loc: Copy, Lbl: Clone + Ord> BorrowGraph<Loc, Lbl> {
+impl<Loc: Copy, Lbl: Clone + Ord + std::fmt::Display + std::fmt::Debug> BorrowGraph<Loc, Lbl> {
     /// creates an empty borrow graph
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
@@ -174,28 +174,52 @@ impl<Loc: Copy, Lbl: Clone + Ord> BorrowGraph<Loc, Lbl> {
     }
 
     fn factor(&mut self, parent_id: RefID, loc: Loc, path: Path<Lbl>, intermediate_id: RefID) {
+        println!("@@@@@@@@ 111111 in factor() function parent_id: {:?}, path {:?}, intermediate_id {:?}",
+        parent_id, path, intermediate_id);
+        println!("@@@@@@@@ 222222 graph in the beginning");
+        self.display();
+        println!("\n");
         debug_assert!(self.check_invariant());
         let parent = self.0.get_mut(&parent_id).unwrap();
-        let mut needs_factored = vec![];
+        let mut needs_factored = vec![];    // 需要分解的
+        // 从借用 parent 的 ref 中，取出 child_id 和 和 parent_to_child 的边
         for (child_id, parent_to_child_edges) in &parent.borrowed_by.0 {
+            // 循环每个 parent_to_child 的边
             for parent_to_child_edge in parent_to_child_edges {
+                // 如果参数 path 小于等于 parent_to_child 的边
+                // 小于等于的含义是：path 的长度小于等于 parent_to_child，并且 left 中的值和 parent_to_child 一样
+                // 说明 path 是 parent_to_child 中的一部分
                 if paths::leq(&path, &parent_to_child_edge.path) {
                     let factored_edge = (*child_id, parent_to_child_edge.clone());
                     needs_factored.push(factored_edge);
                 }
             }
         }
+        if needs_factored.len() > 0 {
+            println!("@@@@@@@@ 333333 needs factored {:?}", needs_factored);
+            println!("@@@@@@@@ 333333 before remove needs_factored");
+            //let a = self.clone();
+            //a.display();
+            println!("\n");
+        }
 
         let mut cleanup_ids = BTreeSet::new();
+        // 迭代每个需要分解的，取出 child_id 和 parent_to_child 的边
         for (child_id, parent_to_child_edge) in &needs_factored {
+            // 取出 parent_to_child 的所有边
             let parent_to_child_edges = parent.borrowed_by.0.get_mut(child_id).unwrap();
+            // 从 parent_to_child 的所有边之中，删除之前找到的 path 小于等于的那个边
             assert!(parent_to_child_edges.remove(parent_to_child_edge));
+            // 如果 parent_to_child 的所有边都被删除，为空
+            // 则从 parent 的 borrowed_by 中移除 这个 child_id
+            // 然后将已经被移除过的 child_id，保存在 cleanup_ids 中
             if parent_to_child_edges.is_empty() {
                 assert!(parent.borrowed_by.0.remove(child_id).is_some());
                 cleanup_ids.insert(child_id);
             }
         }
 
+        // 从之前被删除的 child_id 的 borrows_from 中删除 parent_id
         for child_id in cleanup_ids {
             assert!(self
                 .0
@@ -204,24 +228,47 @@ impl<Loc: Copy, Lbl: Clone + Ord> BorrowGraph<Loc, Lbl> {
                 .borrows_from
                 .remove(&parent_id));
         }
+        if needs_factored.len() > 0 {
+            println!("@@@@@@@@ 444444 after remove needs_factored");
+            self.display();
+            println!("\n");
+        }
 
+        // 经过以上代码，如果 path 包含在 parent 到 child_id 的边之中，就收集这些 child_id
+        // 删除他们和 parent 的连接，反过来也删除 parent 和 他们之间的连接
+
+        let cloned_needs_factored = needs_factored.clone();
         for (child_id, parent_to_child_edge) in needs_factored {
-            let (_, intermediate_to_child_suffix) = paths::factor(&path, parent_to_child_edge.path);
+            // 根据 path 分解出 path 和 parent_to_child 的边的后缀
+            let (_, intermediate_to_child_suffix) = paths::factor(&path, parent_to_child_edge.path.clone());
+            println!("@@@@@@@@ 555555 path {:?},\n parent_to_child_edge.path {:?},\n intermediate_id {:?},\n intermediate_to_child_suffix {:?},\n child_id {:?}\n",
+            path, parent_to_child_edge.path, intermediate_id, intermediate_to_child_suffix, child_id);
             self.add_path(
                 intermediate_id,
                 parent_to_child_edge.loc,
                 parent_to_child_edge.strong,
                 intermediate_to_child_suffix,
                 child_id,
-            )
+            );
+            self.display();
+        }
+        println!("@@@@@@@@ 66666 needs_factored {:?}", cloned_needs_factored.len());
+        if cloned_needs_factored.len() > 0 {
+            println!("@@@@@@@@ 666666 after factor borrows graph");
+            self.display();
+            println!("\n");
         }
         self.add_path(
             parent_id,
             loc,
             /* strong */ true,
-            path,
+            path.clone(),
             intermediate_id,
         );
+        println!("@@@@@@@@ 777777 last add path parent_id {:?}, path {:?}, intermediate_id {:?}",
+        parent_id, path, intermediate_id);
+        self.display();
+        println!("");
         debug_assert!(self.check_invariant());
     }
 
@@ -381,6 +428,9 @@ impl<Loc: Copy, Lbl: Clone + Ord> BorrowGraph<Loc, Lbl> {
 
     /// Checks at all ids in edges are contained in the borrow map itself, i.e. that each id
     /// corresponds to a reference
+    // 检查边中的所有 ID 是否都包含在借用映射中，即每个 ID 是否都有对应的引用。
+    // 检查每个借用关系中的 Ref
+    // 借用 Ref 的每个 id 都包含在借用图中，被 Ref 借用的每个 id 也包含在借用图中
     fn id_consistency(&self) -> bool {
         let contains_id = |id| self.0.contains_key(id);
         self.0.values().all(|r| {
@@ -391,6 +441,9 @@ impl<Loc: Copy, Lbl: Clone + Ord> BorrowGraph<Loc, Lbl> {
     /// Checks that for every edge in borrowed_by there is a flipped edge in borrows_from
     /// And vice versa
     //// i.e. verifies the "back edges" in the borrow graph
+    // 检查每个边的 borrowed_by 和 borrows_from 中的 id
+    // 确保 borrowed_by 中的 id 在 borrows_from 中存在
+    // 确保 borrows_from 中的 id 在 borrowed_by 中存在
     fn edge_consistency(&self) -> bool {
         let parent_to_child_consistency =
             |cur_parent, child| self.0[child].borrows_from.contains(cur_parent);
@@ -416,6 +469,7 @@ impl<Loc: Copy, Lbl: Clone + Ord> BorrowGraph<Loc, Lbl> {
     }
 
     /// Checks that no reference borrows from itself
+    // 检查确保 id 没有借用自身
     fn no_self_loops(&self) -> bool {
         self.0.iter().all(|(id, r)| {
             r.borrowed_by.0.keys().all(|to_id| id != to_id)

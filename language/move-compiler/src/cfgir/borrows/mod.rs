@@ -12,7 +12,7 @@ use crate::{
 use move_ir_types::location::*;
 use state::{Value, *};
 use std::collections::BTreeMap;
-use crate::shared::ast_debug::display;
+use crate::shared::ast_debug::{print, print_verbose};
 
 mod state;
 
@@ -70,13 +70,19 @@ impl TransferFunctions for BorrowSafety {
         cmd: &Command,
     ) -> Diagnostics {
         let mut context = Context::new(self, pre);
+        println!("before execute command");
+        print(cmd);
         command(&mut context, cmd);
+        println!("after execute command");
+        print(cmd);
+        print!("\n");
         context
             .borrow_state
             .canonicalize_locals(context.local_numbers);
-        println!("\n\nexecute {:?} command {:?}", _lbl, display(cmd));
+        println!("after execute command and canonicalize_locals");
+        print(cmd);
         context.borrow_state.display();
-        println!("\n");
+        print!("\n\n\n\n\n\n\n\n\n\n\n");
         context.get_diags()
     }
 }
@@ -91,6 +97,7 @@ pub fn verify(
     cfg: &super::cfg::BlockCFG,
 ) -> BTreeMap<Label, BorrowState> {
     println!("\n\n!!!!!! borrows::verify start !!!!!!!");
+    print_verbose(cfg);
     // check for existing errors
     let has_errors = compilation_env.has_errors();
     let mut initial_state = BorrowState::initial(locals, acquires.clone(), has_errors);
@@ -111,15 +118,20 @@ fn command(context: &mut Context, sp!(loc, cmd_): &Command) {
     use Command_ as C;
     match cmd_ {
         C::Assign(ls, e) => {
+            println!("C::Assign start");
             let values = exp(context, e);
             lvalues(context, ls, values);
+            context.borrow_state.display();
+            println!("C::Assign end");
         },
         C::Mutate(el, er) => {
+            println!("C::Mutate start");
             let value = assert_single_value(exp(context, er));
             assert!(!value.is_ref());
             let lvalue = assert_single_value(exp(context, el));
             let diags = context.borrow_state.mutate(*loc, lvalue);
             context.add_diags(diags);
+            println!("C::Mutate end");
         },
         C::JumpIf { cond: e, .. } => {
             let value = assert_single_value(exp(context, e));
@@ -176,42 +188,64 @@ fn exp(context: &mut Context, parent_e: &Exp) -> Values {
     let svalue = || vec![Value::NonRef];
     match &parent_e.exp.value {
         E::Move { var, annotation } => {
+            print!("!!!!!! start E::Move\n");
             let last_usage = matches!(annotation, MoveOpAnnotation::InferredLastUsage);
             let (diags, value) = context.borrow_state.move_local(*eloc, var, last_usage);
             context.add_diags(diags);
+            print!("!!!!!! end E::Move\n\n");
             vec![value]
         },
         E::Copy { var, .. } => {
+            print!("!!!!!! start E::Copy\n");
             let (diags, value) = context.borrow_state.copy_local(*eloc, var);
             context.add_diags(diags);
+            print!("!!!!!! end E::Copy\n\n");
             vec![value]
         },
         E::BorrowLocal(mut_, var) => {
+            print!("!!!!!! start E::BorrowLocal var -> {:?}\n", var);
+            context.borrow_state.display();
             let (diags, value) = context.borrow_state.borrow_local(*eloc, *mut_, var);
+            println!("E::BorrowLocal after borrow_local, var -> {:?}, value -> {:?}", var, value);
+            context.borrow_state.display();
             context.add_diags(diags);
             assert!(value.is_ref());
+            print!("!!!!!! end E::BorrowLocal\n\n");
             vec![value]
         },
         E::Freeze(e) => {
+            print!("!!!!!! start E::Freeze\n");
             let evalue = assert_single_value(exp(context, e));
             let (diags, value) = context.borrow_state.freeze(*eloc, evalue);
             context.add_diags(diags);
+            print!("!!!!!! end E::Freeze\n\n");
             vec![value]
         },
         E::Dereference(e) => {
+            print!("!!!!!! start E::Dereference\n");
             let evalue = assert_single_value(exp(context, e));
             let (errors, value) = context.borrow_state.dereference(*eloc, evalue);
             context.add_diags(errors);
+            print!("!!!!!! end E::Dereference\n\n");
             vec![value]
         },
         E::Borrow(mut_, e, f) => {
+            print!("!!!!!! start E::Borrow\n");
+            context.borrow_state.display();
             let evalue = assert_single_value(exp(context, e));
+            print!("E::Borrow after exp, evalue -> {:?}, exp -> ", evalue);
+            print(e);
+            context.borrow_state.display();
             let (diags, value) = context.borrow_state.borrow_field(*eloc, *mut_, evalue, f);
+            print!("E::Borrow after borrow_filed\n");
+            context.borrow_state.display();
             context.add_diags(diags);
+            print!("!!!!!! end E::Borrow\n\n");
             vec![value]
         },
 
         E::Builtin(b, e) => {
+            print!("!!!!!! E::Builtin\n");
             let evalues = exp(context, e);
             let b: &BuiltinFunction = b;
             match b {

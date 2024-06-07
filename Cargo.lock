@@ -2945,6 +2945,7 @@ dependencies = [
  "datatest-stable",
  "difference",
  "hex",
+ "log",
  "move-binary-format",
  "move-borrow-graph",
  "move-bytecode-source-map",

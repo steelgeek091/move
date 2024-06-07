@@ -709,8 +709,13 @@ impl BorrowState {
             self.readable(loc, ReferenceSafety::RefTrans, msg, id, Some(field))
         };
         let field_borrow_id = self.declare_new_ref(mut_);
+        println!("in borrow_field() id {:?} field_borrow_id {:?}", id, field_borrow_id);
+        //self.display();
         self.add_field_borrow(loc, id, *field, field_borrow_id);
+        println!("============ after add_field_borrow");
+        self.display();
         self.release(id);
+        //self.display();
         (diags, Value::Ref(field_borrow_id))
     }
 

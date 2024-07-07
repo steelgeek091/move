@@ -2,6 +2,7 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data_cache::TransactionCache;
 use crate::{
     loader::{Function, Loader, Resolver},
     native_extensions::NativeContextExtensions,
@@ -13,6 +14,7 @@ use move_binary_format::{
     errors::*,
     file_format::{Ability, AbilitySet, Bytecode, FunctionHandleIndex, FunctionInstantiationIndex},
 };
+use move_core_types::gas_algebra::InternalGas;
 use move_core_types::{
     account_address::AccountAddress,
     gas_algebra::{NumArgs, NumBytes},
@@ -29,8 +31,8 @@ use move_vm_types::{
     },
     views::TypeView,
 };
+use std::collections::BTreeMap;
 use std::{cmp::min, collections::VecDeque, fmt::Write, sync::Arc};
-use crate::data_cache::TransactionCache;
 
 macro_rules! debug_write {
     ($($toks: tt)*) => {
@@ -132,9 +134,48 @@ impl Interpreter {
                 .map_err(|e| self.set_location(e))?;
         }
 
+        let mut call_depth = 0;
+        let generate_print_space = |space_count: u64| -> String {
+            if space_count == 0 {
+                "".to_string()
+            } else {
+                "|  ".repeat(space_count as usize)
+            }
+        };
+        let mut before_balance = InternalGas::zero();
+
+        let mut layered_gas: BTreeMap<u64, InternalGas> = BTreeMap::new();
+        let mut layered_gas_used_map: Vec<(u64, bool, InternalGas, String)> = Vec::new();
+
         let mut current_frame = self
             .make_new_frame(loader, function, ty_args, locals)
             .map_err(|err| self.set_location(err))?;
+
+        let func_name = current_frame.function.name().to_string();
+        let module_address_name = current_frame
+            .function
+            .module_id()
+            .unwrap()
+            .short_str_lossless();
+        let full_func_name = format!("{}::{}", module_address_name, func_name);
+        layered_gas_used_map.push((call_depth, false, InternalGas::zero(), full_func_name));
+        before_balance = gas_meter.balance_internal();
+        layered_gas.insert(call_depth, before_balance);
+
+        fn calculate_percentage(numerator: u64, denominator: u64) -> Option<u64> {
+            if denominator == 0 {
+                return None;
+            }
+
+            match numerator
+                .checked_mul(100)
+                .and_then(|n| n.checked_div(denominator))
+            {
+                Some(result) => Some(result),
+                None => None,
+            }
+        }
+
         loop {
             let resolver = current_frame.resolver(loader);
             let exit_code =
@@ -155,11 +196,79 @@ impl Interpreter {
                         .map_err(|e| self.set_location(e))?;
 
                     if let Some(frame) = self.call_stack.pop() {
+                        let func_name = current_frame.function.name().to_string();
+                        let module_address_name = current_frame
+                            .function
+                            .module_id()
+                            .unwrap()
+                            .short_str_lossless();
+                        let full_func_name = format!("{}::{}", module_address_name, func_name);
+
+                        let layered_before_gas = layered_gas.get(&call_depth).unwrap();
+                        let gas_used = layered_before_gas
+                            .checked_sub(gas_meter.balance_internal())
+                            .unwrap_or(InternalGas::zero());
+
+                        layered_gas_used_map.push((
+                            call_depth,
+                            true,
+                            gas_used,
+                            full_func_name.clone(),
+                        ));
+
+                        call_depth -= 1;
+
                         // Note: the caller will find the callee's return values at the top of the shared operand stack
                         current_frame = frame;
                         current_frame.pc += 1; // advance past the Call instruction in the caller
                     } else {
                         // end of execution. `self` should no longer be used afterward
+                        let after_balance = gas_meter.balance_internal();
+
+                        let func_name = current_frame.function.name().to_string();
+                        let module_address_name = current_frame
+                            .function
+                            .module_id()
+                            .unwrap()
+                            .short_str_lossless();
+                        let full_func_name = format!("{}::{}", module_address_name, func_name);
+
+                        layered_gas_used_map.push((
+                            call_depth,
+                            true,
+                            before_balance.checked_sub(after_balance).unwrap(),
+                            full_func_name,
+                        ));
+
+                        for (call_depth, is_return, gas_used, func_name) in
+                            layered_gas_used_map.iter()
+                        {
+                            let msg = if !is_return {
+                                format!(
+                                    "{}{}.Call {:}",
+                                    generate_print_space(*call_depth),
+                                    call_depth,
+                                    func_name
+                                )
+                            } else {
+                                let total_gas_used: u64 =
+                                    before_balance.checked_sub(after_balance).unwrap().into();
+                                let current_func_gas_used: u64 = gas_used.clone().into();
+                                let percentage =
+                                    calculate_percentage(current_func_gas_used, total_gas_used)
+                                        .unwrap_or(0);
+                                format!(
+                                    "{}{}.gas used {:} {}% -> Return {}",
+                                    generate_print_space(*call_depth),
+                                    call_depth,
+                                    gas_used,
+                                    percentage,
+                                    func_name
+                                )
+                            };
+                            println!("{}", msg);
+                        }
+
                         return Ok(self.operand_stack.value);
                     }
                 },
@@ -189,7 +298,24 @@ impl Interpreter {
                         )
                         .map_err(|e| set_err_info!(current_frame, e))?;
 
+                    let func_name = func.name().to_string();
+                    let module_address_name = func.module_id().unwrap().short_str_lossless();
+                    let full_func_name = format!("{}::{}", module_address_name, func_name);
+                    call_depth += 1;
+
+                    layered_gas.insert(call_depth, gas_meter.balance_internal());
+                    layered_gas_used_map.push((
+                        call_depth,
+                        false,
+                        InternalGas::zero(),
+                        full_func_name.clone(),
+                    ));
+
                     if func.is_native() {
+                        let func_name = func.name().to_string();
+                        let module_address_name = func.module_id().unwrap().short_str_lossless();
+                        let full_func_name = format!("{}::{}", module_address_name, func_name);
+
                         self.call_native(
                             &resolver,
                             data_store,
@@ -199,6 +325,20 @@ impl Interpreter {
                             vec![],
                         )?;
                         current_frame.pc += 1; // advance past the Call instruction in the caller
+
+                        let layered_before_gas = layered_gas.get(&call_depth).unwrap();
+                        let gas_used = layered_before_gas
+                            .checked_sub(gas_meter.balance_internal())
+                            .unwrap_or(InternalGas::zero());
+
+                        layered_gas_used_map.push((
+                            call_depth,
+                            true,
+                            gas_used,
+                            full_func_name.clone(),
+                        ));
+
+                        call_depth -= 1;
                         continue;
                     }
                     let frame = self
@@ -244,11 +384,43 @@ impl Interpreter {
                         )
                         .map_err(|e| set_err_info!(current_frame, e))?;
 
+                    let func_name = func.name().to_string();
+                    let module_address_name = func.module_id().unwrap().short_str_lossless();
+                    let full_func_name = format!("{}::{}", module_address_name, func_name);
+                    call_depth += 1;
+
+                    layered_gas.insert(call_depth, gas_meter.balance_internal());
+                    layered_gas_used_map.push((
+                        call_depth,
+                        false,
+                        InternalGas::zero(),
+                        full_func_name,
+                    ));
+
                     if func.is_native() {
+                        let func_name = func.name().to_string();
+                        let module_address_name = func.module_id().unwrap().short_str_lossless();
+                        let full_func_name = format!("{}::{}", module_address_name, func_name);
+
                         self.call_native(
                             &resolver, data_store, gas_meter, extensions, func, ty_args,
                         )?;
                         current_frame.pc += 1; // advance past the Call instruction in the caller
+
+                        let layered_before_gas = layered_gas.get(&call_depth).unwrap();
+                        let gas_used = layered_before_gas
+                            .checked_sub(gas_meter.balance_internal())
+                            .unwrap_or(InternalGas::zero());
+
+                        layered_gas_used_map.push((
+                            call_depth,
+                            true,
+                            gas_used,
+                            full_func_name.clone(),
+                        ));
+
+                        call_depth -= 1;
+
                         continue;
                     }
                     let frame = self
@@ -384,6 +556,10 @@ impl Interpreter {
         for _ in 0..expected_args {
             args.push_front(self.operand_stack.pop()?);
         }
+
+        let func_name = function.name().to_string();
+        let module_address_name = function.module_id().unwrap().short_str_lossless();
+        let full_func_name = format!("{}::{}", module_address_name, func_name);
 
         if self.paranoid_type_checks {
             for i in 0..expected_args {
@@ -1794,6 +1970,11 @@ impl Frame {
                         instruction,
                     )?;
                 }
+
+                let func_name = self.function.name().to_string();
+                let module_address_name = self.function.module_id().unwrap().short_str_lossless();
+                let full_func_name = format!("{}::{}", module_address_name, func_name);
+                let before_balance = gas_meter.balance_internal();
 
                 match instruction {
                     Bytecode::Pop => {

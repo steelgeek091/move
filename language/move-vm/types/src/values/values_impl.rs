@@ -2106,6 +2106,51 @@ impl VectorRef {
         }
     }
 
+    pub fn reverse(&self, type_param: &Type) -> PartialVMResult<()> {
+        let c = self.0.container();
+        check_elem_layout(type_param, c)?;
+
+        macro_rules! err_pop_empty_vec {
+            () => {
+                return Err(PartialVMError::new(StatusCode::VECTOR_OPERATION_ERROR)
+                    .with_sub_status(POP_EMPTY_VEC))
+            };
+        }
+
+        match c {
+            Container::VecU8(r) => {
+                r.borrow_mut().reverse();
+            },
+            Container::VecU16(r) => {
+                r.borrow_mut().reverse();
+            },
+            Container::VecU32(r) => {
+                r.borrow_mut().reverse();
+            },
+            Container::VecU64(r) => {
+                r.borrow_mut().reverse();
+            },
+            Container::VecU128(r) => {
+                r.borrow_mut().reverse();
+            },
+            Container::VecU256(r) => {
+                r.borrow_mut().reverse();
+            },
+            Container::VecBool(r) => {
+                r.borrow_mut().reverse();
+            },
+            Container::VecAddress(r) => {
+                r.borrow_mut().reverse();
+            },
+            Container::Vec(r) => {
+                r.borrow_mut().reverse();
+            },
+            Container::Locals(_) | Container::Struct(_) => unreachable!(),
+        };
+
+        Ok(())
+    }
+
     pub fn pop(&self, type_param: &Type) -> PartialVMResult<Value> {
         let c = self.0.container();
         check_elem_layout(type_param, c)?;

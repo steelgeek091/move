@@ -4,6 +4,7 @@
 
 use crate::natives::helpers::make_module_natives;
 use move_binary_format::errors::{PartialVMError, PartialVMResult};
+use move_core_types::gas_algebra::GasQuantity;
 use move_core_types::{
     gas_algebra::{InternalGas, InternalGasPerAbstractMemoryUnit},
     vm_status::StatusCode,
@@ -16,6 +17,7 @@ use move_vm_types::{
     values::{Value, Vector, VectorRef},
     views::ValueView,
 };
+use smallvec::smallvec;
 use std::{collections::VecDeque, sync::Arc};
 
 /***************************************************************************************************
@@ -118,6 +120,44 @@ pub fn make_native_push_back(gas_params: PushBackGasParameters) -> NativeFunctio
     Arc::new(
         move |context, ty_args, args| -> PartialVMResult<NativeResult> {
             native_push_back(&gas_params, context, ty_args, args)
+        },
+    )
+}
+
+pub fn native_append(
+    gas_params: &PushBackGasParameters,
+    _context: &mut NativeContext,
+    ty_args: Vec<Type>,
+    mut args: VecDeque<Value>,
+) -> PartialVMResult<NativeResult> {
+    debug_assert!(ty_args.len() == 1);
+    debug_assert!(args.len() == 2);
+
+    let mut other = pop_arg!(args, VectorRef);
+    let lhs = pop_arg!(args, VectorRef);
+    let type_arg = &ty_args[0];
+    let type_size = type_arg.size();
+
+    other.reverse(type_arg)?;
+
+    let mut cost = gas_params.base;
+    let length = other.len(type_arg)?.value_as::<u64>()?;
+    for _ in 0..length {
+        let value = other.pop(type_arg)?;
+        NativeResult::map_partial_vm_result_empty(cost, lhs.push_back(value, type_arg))?;
+    }
+
+    cost += gas_params.legacy_per_abstract_memory_unit
+        * std::cmp::max(type_size, 1.into())
+        * GasQuantity::new(length);
+
+    Ok(NativeResult::ok(cost, smallvec![]))
+}
+
+pub fn make_native_append(gas_params: PushBackGasParameters) -> NativeFunction {
+    Arc::new(
+        move |context, ty_args, args| -> PartialVMResult<NativeResult> {
+            native_append(&gas_params, context, ty_args, args)
         },
     )
 }
@@ -304,7 +344,11 @@ pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, Nati
     let natives = [
         ("empty", make_native_empty(gas_params.empty)),
         ("length", make_native_length(gas_params.length)),
-        ("push_back", make_native_push_back(gas_params.push_back)),
+        (
+            "push_back",
+            make_native_push_back(gas_params.push_back.clone()),
+        ),
+        ("native_append", make_native_append(gas_params.push_back)),
         ("borrow", make_native_borrow(gas_params.borrow.clone())),
         ("borrow_mut", make_native_borrow(gas_params.borrow)),
         ("pop_back", make_native_pop_back(gas_params.pop_back)),

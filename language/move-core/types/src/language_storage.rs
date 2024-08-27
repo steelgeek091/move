@@ -69,9 +69,8 @@ impl TypeTag {
     /// using their source syntax:
     /// "u8", "u64", "u128", "bool", "address", "vector", "signer" for ground types.
     /// Struct types are represented as fully qualified type names; e.g.
-    /// `00000000000000000000000000000001::string::String` or
-    /// `0000000000000000000000000000000a::module_name1::type_name1<0000000000000000000000000000000a::module_name2::type_name2<u64>>`
-    /// With or without the prefix 0x depending on the `with_prefix` flag.
+    /// `0x00000000000000000000000000000001::string::String` or
+    /// `0x0000000000000000000000000000000a::module_name1::type_name1<0x0000000000000000000000000000000a::module_name2::type_name2<u64>>`
     /// Addresses are hex-encoded lowercase values of length ADDRESS_LENGTH (16, 20, or 32 depending on the Move platform)
     /// Note: this function is guaranteed to be stable, and this is suitable for use inside
     /// Move native functions or the VM. By contrast, the `Display` implementation is subject
@@ -81,6 +80,7 @@ impl TypeTag {
     }
 
     /// Return the canonical string representation of the TypeTag conditionally with prefix 0x
+    /// With or without the prefix 0x depending on the `with_prefix` flag.
     pub fn to_canonical_display(&self, with_prefix: bool) -> impl std::fmt::Display + '_ {
         struct CanonicalDisplay<'a> {
             data: &'a TypeTag,
@@ -162,10 +162,9 @@ impl StructTag {
 
     /// Return a canonical string representation of the struct.
     /// Struct types are represented as fully qualified type names; e.g.
-    /// `00000000000000000000000000000001::string::String`,
-    /// `0000000000000000000000000000000a::module_name1::type_name1<0000000000000000000000000000000a::module_name2::type_name2<u64>>`,
-    /// or `0000000000000000000000000000000a::module_name2::type_name2<bool,u64,u128>.
-    /// With or without the prefix 0x depending on the `with_prefix` flag.
+    /// `0x00000000000000000000000000000001::string::String`,
+    /// `0x0000000000000000000000000000000a::module_name1::type_name1<0x0000000000000000000000000000000a::module_name2::type_name2<u64>>`,
+    /// or `0x0000000000000000000000000000000a::module_name2::type_name2<bool,u64,u128>.
     /// Addresses are hex-encoded lowercase values of length ADDRESS_LENGTH (16, 20, or 32 depending on the Move platform)
     /// Note: this function is guaranteed to be stable, and this is suitable for use inside
     /// Move native functions or the VM. By contrast, the `Display` implementation is subject
@@ -175,6 +174,7 @@ impl StructTag {
     }
 
     /// Implements the canonical string representation of the StructTag with the prefix 0x
+    /// With or without the prefix 0x depending on the `with_prefix` flag.
     pub fn to_canonical_display(&self, with_prefix: bool) -> impl std::fmt::Display + '_ {
         struct CanonicalDisplay<'a> {
             data: &'a StructTag,
@@ -311,7 +311,7 @@ impl ModuleId {
 
 impl Display for ModuleId {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.to_canonical_display(/* with_prefix */ false))
+        write!(f, "{}", self.to_canonical_display(/* with_prefix */ true))
     }
 }
 

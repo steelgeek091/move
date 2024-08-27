@@ -52,8 +52,31 @@ impl AccountAddress {
     /// e.g., 0000000000000000000000000000000a, *not* 0x0000000000000000000000000000000a, 0xa, or 0xA
     /// Note: this function is guaranteed to be stable, and this is suitable for use inside
     /// Move native functions or the VM.
-    pub fn to_canonical_string(&self) -> String {
-        hex::encode(self.0)
+    /// However, one can pass with_prefix=true to get its representation with the 0x prefix.
+    pub fn to_canonical_string(&self, with_prefix: bool) -> String {
+        self.to_canonical_display(with_prefix).to_string()
+    }
+
+    /// Implements Display for the address, with the prefix 0x if with_prefix is true.
+    pub fn to_canonical_display(&self, with_prefix: bool) -> impl fmt::Display + '_ {
+        struct HexDisplay<'a> {
+            data: &'a [u8],
+            with_prefix: bool,
+        }
+
+        impl<'a> fmt::Display for HexDisplay<'a> {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                if self.with_prefix {
+                    write!(f, "0x{}", hex::encode(self.data))
+                } else {
+                    write!(f, "{}", hex::encode(self.data))
+                }
+            }
+        }
+        HexDisplay {
+            data: &self.0,
+            with_prefix,
+        }
     }
 
     pub fn short_str_lossless(&self) -> String {
@@ -301,6 +324,7 @@ impl std::error::Error for AccountAddressParseError {}
 #[cfg(test)]
 mod tests {
     use super::AccountAddress;
+    use crate::gas_algebra::AbstractMemorySize;
     use hex::FromHex;
     use proptest::prelude::*;
     use std::{
@@ -425,6 +449,14 @@ mod tests {
     fn test_address_from_empty_string() {
         assert!(AccountAddress::try_from("".to_string()).is_err());
         assert!(AccountAddress::from_str("").is_err());
+    }
+
+    #[test]
+    fn test_abstract_size() {
+        assert_eq!(
+            AccountAddress::random().abstract_size_for_gas_metering(),
+            AbstractMemorySize::new(AccountAddress::LENGTH as u64)
+        );
     }
 
     proptest! {

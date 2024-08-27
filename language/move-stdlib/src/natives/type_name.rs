@@ -28,7 +28,7 @@ fn native_get(
     debug_assert!(arguments.is_empty());
 
     let type_tag = context.type_to_type_tag(&ty_args[0])?;
-    let type_name = type_tag.to_canonical_string(true);
+    let type_name = type_tag.to_canonical_string();
     // make a std::string::String
     let string_val = Value::struct_(Struct::pack(vec![Value::vector_u8(
         type_name.as_bytes().to_vec(),

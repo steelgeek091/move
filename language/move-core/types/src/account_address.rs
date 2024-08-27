@@ -53,8 +53,8 @@ impl AccountAddress {
     /// Note: this function is guaranteed to be stable, and this is suitable for use inside
     /// Move native functions or the VM.
     /// However, one can pass with_prefix=true to get its representation with the 0x prefix.
-    pub fn to_canonical_string(&self, with_prefix: bool) -> String {
-        self.to_canonical_display(with_prefix).to_string()
+    pub fn to_canonical_string(&self) -> String {
+        self.to_canonical_display(true).to_string()
     }
 
     /// Implements Display for the address, with the prefix 0x if with_prefix is true.

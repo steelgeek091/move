@@ -76,8 +76,8 @@ impl TypeTag {
     /// Note: this function is guaranteed to be stable, and this is suitable for use inside
     /// Move native functions or the VM. By contrast, the `Display` implementation is subject
     /// to change and should not be used inside stable code.
-    pub fn to_canonical_string(&self, with_prefix: bool) -> String {
-        self.to_canonical_display(with_prefix).to_string()
+    pub fn to_canonical_string(&self) -> String {
+        self.to_canonical_display(true).to_string()
     }
 
     /// Return the canonical string representation of the TypeTag conditionally with prefix 0x
@@ -170,8 +170,8 @@ impl StructTag {
     /// Note: this function is guaranteed to be stable, and this is suitable for use inside
     /// Move native functions or the VM. By contrast, the `Display` implementation is subject
     /// to change and should not be used inside stable code.
-    pub fn to_canonical_string(&self, with_prefix: bool) -> String {
-        self.to_canonical_display(with_prefix).to_string()
+    pub fn to_canonical_string(&self) -> String {
+        self.to_canonical_display(true).to_string()
     }
 
     /// Implements the canonical string representation of the StructTag with the prefix 0x
@@ -279,8 +279,8 @@ impl ModuleId {
         key
     }
 
-    pub fn to_canonical_string(&self, with_prefix: bool) -> String {
-        self.to_canonical_display(with_prefix).to_string()
+    pub fn to_canonical_string(&self) -> String {
+        self.to_canonical_display(true).to_string()
     }
 
     /// Proxy type for overriding `ModuleId`'s display implementation, to use a canonical form

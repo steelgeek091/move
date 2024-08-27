@@ -424,7 +424,7 @@ mod testing {
             },
             MoveValue::Address(a) => {
                 let str = if canonicalize {
-                    a.to_canonical_string()
+                    a.to_canonical_string(false)
                 } else {
                     a.to_hex_literal()
                 };
@@ -432,7 +432,7 @@ mod testing {
             },
             MoveValue::Signer(s) => {
                 let str = if canonicalize {
-                    s.to_canonical_string()
+                    s.to_canonical_string(false)
                 } else {
                     s.to_hex_literal()
                 };

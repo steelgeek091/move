@@ -133,7 +133,7 @@ pub fn native_append(
     debug_assert!(ty_args.len() == 1);
     debug_assert!(args.len() == 2);
 
-    let mut other = pop_arg!(args, VectorRef);
+    let other = pop_arg!(args, VectorRef);
     let lhs = pop_arg!(args, VectorRef);
     let type_arg = &ty_args[0];
     let type_size = type_arg.size();

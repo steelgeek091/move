@@ -4,8 +4,8 @@
 
 use crate::{
     account_address::AccountAddress,
-    ident_str,
-    identifier::Identifier,
+    gas_algebra::AbstractMemorySize,
+    identifier::{IdentStr, Identifier},
     language_storage::{ModuleId, StructTag, TypeTag},
 };
 use bcs::test_helpers::assert_canonical_encode_decode;
@@ -22,8 +22,8 @@ proptest! {
 fn test_type_tag_deserialize_case_insensitive() {
     let org_struct_tag = StructTag {
         address: AccountAddress::ONE,
-        module: Identifier::from(ident_str!("TestModule")),
-        name: Identifier::from(ident_str!("TestStruct")),
+        module: Identifier::from(IdentStr::new("TestModule").unwrap()),
+        name: Identifier::from(IdentStr::new("TestStruct").unwrap()),
         type_params: vec![
             TypeTag::U8,
             TypeTag::U16,

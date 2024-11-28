@@ -2,8 +2,12 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{interpreter::Interpreter, loader::Resolver,
-            native_extensions::NativeContextExtensions,
+use crate::{
+    data_cache::TransactionDataCache,
+    interpreter::Interpreter,
+    loader::{Function, Loader, Resolver},
+    module_traversal::TraversalContext,
+    native_extensions::NativeContextExtensions,
 };
 use move_binary_format::errors::{
     ExecutionState, Location, PartialVMError, PartialVMResult, VMResult,
@@ -12,9 +16,9 @@ use move_core_types::{
     account_address::AccountAddress,
     gas_algebra::{InternalGas, NumBytes},
     identifier::Identifier,
-    language_storage::TypeTag,
+    language_storage::{ModuleId, TypeTag},
     value::MoveTypeLayout,
-    vm_status::{StatusCode, StatusType},
+    vm_status::StatusCode,
 };
 use move_vm_types::{
     loaded_data::runtime_types::Type, natives::function::NativeResult, values::Value,
@@ -24,8 +28,6 @@ use std::{
     fmt::Write,
     sync::Arc,
 };
-use move_binary_format::CompiledModule;
-use crate::data_cache::TransactionCache;
 
 pub type UnboxedNativeFunction = dyn Fn(&mut NativeContext, Vec<Type>, VecDeque<Value>) -> PartialVMResult<NativeResult>
     + Send
@@ -60,6 +62,7 @@ pub fn make_table_from_iter<S: Into<Box<str>>>(
         .collect()
 }
 
+#[derive(Clone)]
 pub(crate) struct NativeFunctions(
     HashMap<AccountAddress, HashMap<String, HashMap<String, NativeFunction>>>,
 );
@@ -93,21 +96,23 @@ impl NativeFunctions {
     }
 }
 
-pub struct NativeContext<'a, 'b> {
+pub struct NativeContext<'a, 'b, 'c> {
     interpreter: &'a mut Interpreter,
-    data_store: &'a mut dyn TransactionCache,
+    data_store: &'a mut TransactionDataCache<'c>,
     resolver: &'a Resolver<'a>,
     extensions: &'a mut NativeContextExtensions<'b>,
     gas_balance: InternalGas,
+    traversal_context: &'a TraversalContext<'a>,
 }
 
-impl<'a, 'b> NativeContext<'a, 'b> {
+impl<'a, 'b, 'c> NativeContext<'a, 'b, 'c> {
     pub(crate) fn new(
         interpreter: &'a mut Interpreter,
-        data_store: &'a mut dyn TransactionCache,
+        data_store: &'a mut TransactionDataCache<'c>,
         resolver: &'a Resolver<'a>,
         extensions: &'a mut NativeContextExtensions<'b>,
         gas_balance: InternalGas,
+        traversal_context: &'a TraversalContext<'a>,
     ) -> Self {
         Self {
             interpreter,
@@ -115,24 +120,33 @@ impl<'a, 'b> NativeContext<'a, 'b> {
             resolver,
             extensions,
             gas_balance,
+            traversal_context,
         }
     }
 }
 
-impl<'a, 'b> NativeContext<'a, 'b> {
+impl<'a, 'b, 'c> NativeContext<'a, 'b, 'c> {
     pub fn print_stack_trace<B: Write>(&self, buf: &mut B) -> PartialVMResult<()> {
-        self.interpreter
-            .debug_print_stack_trace(buf, self.resolver.loader())
+        self.interpreter.debug_print_stack_trace(buf, self.resolver)
     }
 
     pub fn exists_at(
         &mut self,
         address: AccountAddress,
-        type_: &Type,
+        ty: &Type,
     ) -> VMResult<(bool, Option<NumBytes>)> {
+        // TODO(Rati, George): propagate exists call the way to resolver, because we
+        //                     can implement the check more efficiently, without the
+        //                     need to actually load bytes.
         let (value, num_bytes) = self
             .data_store
-            .load_resource(self.resolver.loader(), address, type_)
+            .load_resource(
+                self.resolver.loader(),
+                self.resolver.module_storage(),
+                address,
+                ty,
+                self.resolver.module_store(),
+            )
             .map_err(|err| err.finish(Location::Undefined))?;
         let exists = value
             .exists()
@@ -140,64 +154,26 @@ impl<'a, 'b> NativeContext<'a, 'b> {
         Ok((exists, num_bytes))
     }
 
-    pub fn save_event(
-        &mut self,
-        guid: Vec<u8>,
-        seq_num: u64,
-        ty: Type,
-        val: Value,
-    ) -> PartialVMResult<bool> {
-        match self
-            .data_store
-            .emit_event(self.resolver.loader(), guid, seq_num, ty, val)
-        {
-            Ok(()) => Ok(true),
-            Err(e) if e.major_status().status_type() == StatusType::InvariantViolation => Err(e),
-            Err(_) => Ok(false),
-        }
-    }
-
-    pub fn events(&self) -> &Vec<(Vec<u8>, u64, Type, MoveTypeLayout, Value)> {
-        self.data_store.events()
-    }
-
-    pub fn load_type(&self, type_tag: &TypeTag) -> VMResult<Type> {
-        self.resolver.loader().load_type(type_tag, self.data_store)
-    }
-
-    pub fn get_type_layout(&self, type_tag: &TypeTag) -> VMResult<MoveTypeLayout> {
-        self.resolver
-            .loader()
-            .get_type_layout(type_tag, self.data_store)
-    }
-
-    pub fn get_fully_annotated_type_layout(&self, type_tag: &TypeTag) -> VMResult<MoveTypeLayout> {
-        self.resolver
-            .loader()
-            .get_fully_annotated_type_layout(type_tag, self.data_store)
-    }
-
     pub fn type_to_type_tag(&self, ty: &Type) -> PartialVMResult<TypeTag> {
-        self.resolver.loader().type_to_type_tag(ty)
+        self.resolver
+            .loader()
+            .type_to_type_tag(ty, self.resolver.module_storage())
     }
 
-    pub fn type_to_type_layout(&self, ty: &Type) -> PartialVMResult<Option<MoveTypeLayout>> {
-        match self.resolver.type_to_type_layout(ty) {
-            Ok(ty_layout) => Ok(Some(ty_layout)),
-            Err(e) if e.major_status().status_type() == StatusType::InvariantViolation => Err(e),
-            Err(_) => Ok(None),
-        }
+    pub fn type_to_type_layout(&self, ty: &Type) -> PartialVMResult<MoveTypeLayout> {
+        self.resolver.type_to_type_layout(ty)
     }
 
-    pub fn type_to_fully_annotated_layout(
+    pub fn type_to_type_layout_with_identifier_mappings(
         &self,
         ty: &Type,
-    ) -> PartialVMResult<Option<MoveTypeLayout>> {
-        match self.resolver.type_to_fully_annotated_layout(ty) {
-            Ok(ty_layout) => Ok(Some(ty_layout)),
-            Err(e) if e.major_status().status_type() == StatusType::InvariantViolation => Err(e),
-            Err(_) => Ok(None),
-        }
+    ) -> PartialVMResult<(MoveTypeLayout, bool)> {
+        self.resolver
+            .type_to_type_layout_with_identifier_mappings(ty)
+    }
+
+    pub fn type_to_fully_annotated_layout(&self, ty: &Type) -> PartialVMResult<MoveTypeLayout> {
+        self.resolver.type_to_fully_annotated_layout(ty)
     }
 
     pub fn extensions(&self) -> &NativeContextExtensions<'b> {
@@ -218,13 +194,48 @@ impl<'a, 'b> NativeContext<'a, 'b> {
         self.gas_balance
     }
 
-    pub fn verify_module_bundle_for_publication(
-        &self,
-        modules: &[CompiledModule],
-    ) -> PartialVMResult<()> {
-        self.resolver
-            .loader()
-            .verify_module_bundle_for_publication(modules, self.data_store)
-            .map_err(|e| e.to_partial())
+    pub fn traversal_context(&self) -> &TraversalContext {
+        self.traversal_context
+    }
+
+    pub fn load_function(
+        &mut self,
+        module_id: &ModuleId,
+        function_name: &Identifier,
+    ) -> PartialVMResult<Arc<Function>> {
+        let (_, function) = match self.resolver.loader() {
+            Loader::V1(loader) => {
+                // Load the module that contains this function regardless of the traversal context.
+                //
+                // This is just a precautionary step to make sure that caching status of the VM will not alter execution
+                // result in case framework code forgot to use LoadFunction result to load the modules into cache
+                // and charge properly.
+                loader
+                    .load_module(module_id, self.data_store, self.resolver.module_store())
+                    .map_err(|_| {
+                        PartialVMError::new(StatusCode::FUNCTION_RESOLUTION_FAILURE)
+                            .with_message(format!("Module {} doesn't exist", module_id))
+                    })?;
+
+                self.resolver
+                    .module_store()
+                    .resolve_module_and_function_by_name(module_id, function_name)?
+            },
+            Loader::V2(loader) => loader
+                .load_function_without_ty_args(
+                    self.resolver.module_storage(),
+                    module_id.address(),
+                    module_id.name(),
+                    function_name,
+                )
+                // TODO(loader_v2):
+                //   Keeping this consistent with loader V1 implementation which returned that
+                //   error. Check if we can avoid remapping by replaying transactions.
+                .map_err(|_| {
+                    PartialVMError::new(StatusCode::FUNCTION_RESOLUTION_FAILURE)
+                        .with_message(format!("Module {} doesn't exist", module_id))
+                })?,
+        };
+        Ok(function)
     }
 }

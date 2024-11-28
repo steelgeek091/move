@@ -122,7 +122,7 @@ impl NativeFunctions {
             let fun_sig = format!("{}", sig);
             let function_selector =
                 format!("0x{:x}", Keccak256::digest(fun_sig.as_bytes()))[..10].to_string();
-            let para_vec = vec![function_selector, "224".to_string()];
+            let para_vec = [function_selector, "224".to_string()];
             let shl224 =
                 gen.parent
                     .call_builtin_str(ctx, YulFunction::Shl, para_vec.iter().cloned());
@@ -451,7 +451,7 @@ impl SoliditySignature {
                 "external function must have at least one argument",
             );
         } else {
-            for Parameter(para_name, move_ty) in fun.get_parameters().into_iter().skip(1) {
+            for Parameter(para_name, move_ty, _) in fun.get_parameters().into_iter().skip(1) {
                 let solidity_ty = SolidityType::translate_from_move(ctx, &move_ty, false); // implicit mapping from a move type to a solidity type
                 para_type_lst.push((
                     solidity_ty,

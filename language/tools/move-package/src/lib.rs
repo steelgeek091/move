@@ -19,23 +19,28 @@ use crate::{
 };
 use anyhow::{bail, Result};
 use clap::*;
+use move_compiler::{
+    command_line::SKIP_ATTRIBUTE_CHECKS, shared::known_attributes::KnownAttribute,
+};
+use move_compiler_v2::external_checks::ExternalChecks;
 use move_core_types::account_address::AccountAddress;
-use move_model::model::GlobalEnv;
+use move_model::{
+    metadata::{CompilerVersion, LanguageVersion},
+    model,
+};
 use serde::{Deserialize, Serialize};
-use source_package::layout::SourcePackageLayout;
+use source_package::{layout::SourcePackageLayout, std_lib::StdVersion};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fmt,
     io::Write,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Architecture {
     Move,
-
-    AsyncMove,
-
     Ethereum,
 }
 
@@ -43,9 +48,6 @@ impl fmt::Display for Architecture {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Move => write!(f, "move"),
-
-            Self::AsyncMove => write!(f, "async-move"),
-
             Self::Ethereum => write!(f, "ethereum"),
         }
     }
@@ -55,7 +57,6 @@ impl Architecture {
     fn all() -> impl Iterator<Item = Self> {
         IntoIterator::into_iter([
             Self::Move,
-            Self::AsyncMove,
             #[cfg(feature = "evm-backend")]
             Self::Ethereum,
         ])
@@ -64,11 +65,7 @@ impl Architecture {
     fn try_parse_from_str(s: &str) -> Result<Self> {
         Ok(match s {
             "move" => Self::Move,
-
-            "async-move" => Self::AsyncMove,
-
             "ethereum" => Self::Ethereum,
-
             _ => {
                 let supported_architectures = Self::all()
                     .map(|arch| format!("\"{}\"", arch))
@@ -103,6 +100,10 @@ pub struct BuildConfig {
     #[clap(name = "test-mode", long = "test", global = true)]
     pub test_mode: bool,
 
+    /// Whether to override the standard library with the given version.
+    #[clap(long = "override-std", global = true, value_parser)]
+    pub override_std: Option<StdVersion>,
+
     /// Generate documentation for packages
     #[clap(name = "generate-docs", long = "doc", global = true)]
     pub generate_docs: bool,
@@ -110,6 +111,14 @@ pub struct BuildConfig {
     /// Generate ABIs for packages
     #[clap(name = "generate-abis", long = "abi", global = true)]
     pub generate_abis: bool,
+
+    /// Whether to generate a move model. Used programmatically only.
+    #[clap(skip)]
+    pub generate_move_model: bool,
+
+    /// Whether the generated model shall contain all functions, including test-only ones.
+    #[clap(skip)]
+    pub full_model_generation: bool,
 
     /// Installation directory for compiled artifacts. Defaults to current directory.
     #[clap(long = "install-dir", value_parser, global = true)]
@@ -134,9 +143,35 @@ pub struct BuildConfig {
     #[clap(long = "skip-fetch-latest-git-deps", global = true)]
     pub skip_fetch_latest_git_deps: bool,
 
+    #[clap(flatten)]
+    pub compiler_config: CompilerConfig,
+}
+
+#[derive(Parser, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Default, Debug)]
+pub struct CompilerConfig {
     /// Bytecode version to compile move code
-    #[clap(long = "bytecode-version", global = true)]
+    #[clap(long, global = true)]
     pub bytecode_version: Option<u32>,
+
+    // Known attribute names.  Depends on compilation context (Move variant)
+    #[clap(skip = KnownAttribute::get_all_attribute_names().clone())]
+    pub known_attributes: BTreeSet<String>,
+
+    /// Do not complain about an unknown attribute in Move code.
+    #[clap(long = SKIP_ATTRIBUTE_CHECKS, default_value = "false")]
+    pub skip_attribute_checks: bool,
+
+    /// Compiler version to use
+    #[clap(long, global = true, value_parser = clap::value_parser!(CompilerVersion))]
+    pub compiler_version: Option<CompilerVersion>,
+
+    /// Language version to support
+    #[clap(long, global = true, value_parser = clap::value_parser!(LanguageVersion))]
+    pub language_version: Option<LanguageVersion>,
+
+    /// Experiments for v2 compiler to set to true
+    #[clap(long, global = true)]
+    pub experiments: Vec<String>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd)]
@@ -146,31 +181,38 @@ pub struct ModelConfig {
     /// If set, a string how targets are filtered. A target is included if its file name
     /// contains this string. This is similar as the `cargo test <string>` idiom.
     pub target_filter: Option<String>,
+    /// The compiler version used to build the model
+    pub compiler_version: CompilerVersion,
+    /// The language version used to build the model
+    pub language_version: LanguageVersion,
 }
 
 impl BuildConfig {
     /// Compile the package at `path` or the containing Move package. Exit process on warning or
     /// failure.
     pub fn compile_package<W: Write>(self, path: &Path, writer: &mut W) -> Result<CompiledPackage> {
-        let bytecode_version = self.bytecode_version;
+        let config = self.compiler_config.clone(); // Need clone because of mut self
         let resolved_graph = self.resolution_graph_for_package(path, writer)?;
         let mutx = PackageLock::lock();
-        let ret = BuildPlan::create(resolved_graph)?.compile(bytecode_version, writer);
+        let ret = BuildPlan::create(resolved_graph)?.compile(&config, writer);
         mutx.unlock();
         ret
     }
 
     /// Compile the package at `path` or the containing Move package. Do not exit process on warning
     /// or failure.
+    /// External checks on Move code can be provided, these are only run if compiler v2 is used.
     pub fn compile_package_no_exit<W: Write>(
         self,
         path: &Path,
+        external_checks: Vec<Arc<dyn ExternalChecks>>,
         writer: &mut W,
-    ) -> Result<CompiledPackage> {
-        let bytecode_version = self.bytecode_version;
+    ) -> Result<(CompiledPackage, Option<model::GlobalEnv>)> {
+        let config = self.compiler_config.clone(); // Need clone because of mut self
         let resolved_graph = self.resolution_graph_for_package(path, writer)?;
         let mutx = PackageLock::lock();
-        let ret = BuildPlan::create(resolved_graph)?.compile_no_exit(bytecode_version, writer);
+        let ret =
+            BuildPlan::create(resolved_graph)?.compile_no_exit(&config, external_checks, writer);
         mutx.unlock();
         ret
     }
@@ -195,7 +237,7 @@ impl BuildConfig {
         self,
         path: &Path,
         model_config: ModelConfig,
-    ) -> Result<GlobalEnv> {
+    ) -> Result<model::GlobalEnv> {
         // resolution graph diagnostics are only needed for CLI commands so ignore them by passing a
         // vector as the writer
         let resolved_graph = self.resolution_graph_for_package(path, &mut Vec::new())?;
@@ -209,7 +251,7 @@ impl BuildConfig {
         let path = SourcePackageLayout::try_find_root(path)?;
         let toml_manifest =
             self.parse_toml_manifest(path.join(SourcePackageLayout::Manifest.path()))?;
-        let mutx = PackageLock::lock();
+        let mutx = PackageLock::strict_lock();
         // This should be locked as it inspects the environment for `MOVE_HOME` which could
         // possibly be set by a different process in parallel.
         let manifest = manifest_parser::parse_source_manifest(toml_manifest)?;

@@ -227,7 +227,7 @@ pub(crate) fn define_emit_fun_for_send(
         // example: 0x00000000000000000000000000000003::AccountStateMachine::deposit
         let message_str = format!(
             "0x{}::{}",
-            fun.module_env.self_address().expect_numerical(),
+            fun.module_env.self_address().expect_numerical().to_hex(),
             fun.get_full_name_str().replace("send_", "")
         );
         let hash_bytes = Sha3_256::digest(message_str.as_bytes());
@@ -252,7 +252,7 @@ pub(crate) fn define_emit_fun_for_send(
         // #message[sig=b"xfer(address indexed, address indexed, uint128 indexed)]
         for (i, (_, solidity_ty, move_ty, indexed_flag, _)) in signature_types.iter().enumerate() {
             let mut var = if i == 0 {
-                params_vec.get(0).unwrap().to_string()
+                params_vec.first().unwrap().to_string()
             } else if i == 1 {
                 message_hash_var.clone()
             } else {

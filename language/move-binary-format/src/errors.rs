@@ -148,6 +148,10 @@ impl VMError {
         self.0.major_status
     }
 
+    pub fn set_major_status(&mut self, major_status: StatusCode) {
+        self.0.major_status = major_status;
+    }
+
     pub fn sub_status(&self) -> Option<u64> {
         self.0.sub_status
     }
@@ -234,6 +238,70 @@ impl VMError {
             offsets,
         }))
     }
+
+    pub fn format_test_output(&self, verbose: bool, comparison_mode: bool) -> String {
+        let location_string = match &self.location() {
+            Location::Undefined => "undefined".to_owned(),
+            Location::Script => "script".to_owned(),
+            Location::Module(id) => {
+                format!("0x{}::{}", id.address().short_str_lossless(), id.name())
+            },
+        };
+        let indices = if comparison_mode {
+            // During comparison testing, abstract this data.
+            "redacted".to_string()
+        } else {
+            format!("{:?}", self.indices())
+        };
+        let offsets = if comparison_mode {
+            // During comparison testing, abstract this data.
+            "redacted".to_string()
+        } else {
+            format!("{:?}", self.offsets())
+        };
+
+        if verbose {
+            let message_str = match &self.message() {
+                Some(message_str) => message_str,
+                None => "None",
+            };
+            format!(
+                "{{
+    message: {message},
+    major_status: {major_status:?},
+    sub_status: {sub_status:?},
+    location: {location_string},
+    indices: {indices},
+    offsets: {offsets},
+    exec_state: {exec_state:?},
+}}",
+                message = message_str,
+                major_status = self.major_status(),
+                sub_status = self.sub_status(),
+                location_string = location_string,
+                exec_state = self.exec_state(),
+                // TODO maybe include source map info?
+                indices = indices,
+                offsets = offsets,
+            )
+        } else {
+            format!(
+                "{{
+    major_status: {major_status:?},
+    sub_status: {sub_status:?},
+    location: {location_string},
+    indices: {indices},
+    offsets: {offsets},
+}}",
+                major_status = self.major_status(),
+                sub_status = self.sub_status(),
+                location_string = location_string,
+                // TODO maybe include source map info?
+                indices = indices,
+                offsets = offsets,
+            )
+        }
+    }
 }
 
 impl fmt::Debug for VMError {
@@ -318,6 +386,17 @@ impl PartialVMError {
             indices,
             offsets,
         } = *self.0;
+        let bt = std::backtrace::Backtrace::capture();
+        let message = if std::backtrace::BacktraceStatus::Captured == bt.status() {
+            if let Some(message) = message {
+                Some(format!("{}\nBacktrace: {:#?}", message, bt).to_string())
+            } else {
+                Some(format!("Backtrace: {:#?}", bt).to_string())
+            }
+        } else {
+            message
+        };
+
         VMError(Box::new(VMError_ {
             major_status,
             sub_status,
@@ -373,6 +452,10 @@ impl PartialVMError {
         self.0.major_status
     }
 
+    pub fn sub_status(&self) -> Option<u64> {
+        self.0.sub_status
+    }
+
     pub fn with_sub_status(mut self, sub_status: u64) -> Self {
         debug_assert!(self.0.sub_status.is_none());
         self.0.sub_status = Some(sub_status);
@@ -394,6 +477,10 @@ impl PartialVMError {
         debug_assert!(self.0.exec_state.is_none());
         self.0.exec_state = Some(exec_state);
         self
+    }
+
+    pub fn message(&self) -> Option<&str> {
+        self.0.message.as_deref()
     }
 
     pub fn at_index(mut self, kind: IndexKind, index: TableIndex) -> Self {
@@ -419,7 +506,7 @@ impl PartialVMError {
         self
     }
 
-    /// Append the message `message` to the message field of the VM status, and insert a seperator
+    /// Append the message `message` to the message field of the VM status, and insert a separator
     /// if the original message is non-empty.
     pub fn append_message_with_separator(
         mut self,
@@ -458,7 +545,7 @@ impl fmt::Display for PartialVMError {
         }
 
         if let Some(msg) = &self.0.message {
-            status = format!("{} and message {}", status, msg);
+            status = format!("{} and message '{}'", status, msg);
         }
 
         for (kind, index) in &self.0.indices {

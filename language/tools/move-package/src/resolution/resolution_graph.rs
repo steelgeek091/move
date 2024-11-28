@@ -12,6 +12,7 @@ use crate::{
             Dependencies, Dependency, FileName, NamedAddress, PackageDigest, PackageName,
             SourceManifest, SubstOrRename,
         },
+        std_lib::{StdLib, StdVersion},
     },
     BuildConfig,
 };
@@ -23,8 +24,7 @@ use move_command_line_common::files::{
 use move_compiler::command_line::DEFAULT_OUTPUT_DIR;
 use move_core_types::account_address::AccountAddress;
 use move_symbol_pool::Symbol;
-use petgraph::{algo, graphmap::DiGraphMap, Outgoing};
-use ptree::{print_tree, TreeBuilder};
+use petgraph::{algo, graphmap::DiGraphMap};
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet},
@@ -108,14 +108,22 @@ impl ResolvingGraph {
         }
         let mut resolution_graph = Self {
             root_package_path: root_package_path.clone(),
-            build_options,
+            build_options: build_options.clone(),
             root_package: root_package.clone(),
             graph: DiGraphMap::new(),
             package_table: BTreeMap::new(),
         };
 
+        let override_std = &build_options.override_std;
+
         resolution_graph
-            .build_resolution_graph(root_package.clone(), root_package_path, true, writer)
+            .build_resolution_graph(
+                root_package.clone(),
+                root_package_path,
+                true,
+                override_std,
+                writer,
+            )
             .with_context(|| {
                 format!(
                     "Unable to resolve packages for package '{}'",
@@ -179,7 +187,7 @@ impl ResolvingGraph {
             bail!(
                 "Unresolved addresses found: [\n{}\n]\n\
                 To fix this, add an entry for each unresolved address to the [addresses] section of {}/Move.toml: \
-                e.g.,\n[addresses]\nStd = \"0x1\"\n\
+                e.g.,\n[addresses]\nstd = \"0x1\"\n\
                 Alternatively, you can also define [dev-addresses] and call with the --dev flag",
                 unresolved_addresses.join("\n"),
                 root_package_path.to_string_lossy()
@@ -200,6 +208,7 @@ impl ResolvingGraph {
         package: SourceManifest,
         package_path: PathBuf,
         is_root_package: bool,
+        override_std: &Option<StdVersion>,
         writer: &mut W,
     ) -> Result<()> {
         let package_name = package.package.name;
@@ -238,12 +247,17 @@ impl ResolvingGraph {
             BTreeMap::new()
         };
 
-        for (dep_name, dep) in package
+        for (dep_name, mut dep) in package
             .dependencies
             .clone()
             .into_iter()
             .chain(additional_deps.into_iter())
         {
+            if let Some(std_version) = &override_std {
+                if let Some(std_lib) = StdLib::from_package_name(dep_name) {
+                    dep = std_lib.dependency(std_version);
+                }
+            }
             let dep_node_id = self.get_or_add_node(dep_name).with_context(|| {
                 format!(
                     "Cycle between packages {} and {} found",
@@ -253,7 +267,7 @@ impl ResolvingGraph {
             self.graph.add_edge(package_node_id, dep_node_id, ());
 
             let (dep_renaming, dep_resolution_table) = self
-                .process_dependency(dep_name, dep, package_path.clone(), writer)
+                .process_dependency(dep_name, dep, package_path.clone(), override_std, writer)
                 .with_context(|| {
                     format!(
                         "While resolving dependency '{}' in package '{}'",
@@ -394,6 +408,7 @@ impl ResolvingGraph {
         dep_name_in_pkg: PackageName,
         dep: Dependency,
         root_path: PathBuf,
+        override_std: &Option<StdVersion>,
         writer: &mut W,
     ) -> Result<(Renaming, ResolvingTable)> {
         Self::download_and_update_if_remote(
@@ -405,10 +420,14 @@ impl ResolvingGraph {
         let (dep_package, dep_package_dir) =
             Self::parse_package_manifest(&dep, &dep_name_in_pkg, root_path)
                 .with_context(|| format!("While processing dependency '{}'", dep_name_in_pkg))?;
-        self.build_resolution_graph(dep_package.clone(), dep_package_dir, false, writer)
-            .with_context(|| {
-                format!("Unable to resolve package dependency '{}'", dep_name_in_pkg)
-            })?;
+        self.build_resolution_graph(
+            dep_package.clone(),
+            dep_package_dir,
+            false,
+            override_std,
+            writer,
+        )
+        .with_context(|| format!("Unable to resolve package dependency '{}'", dep_name_in_pkg))?;
 
         if dep_name_in_pkg != dep_package.package.name {
             bail!("Name of dependency declared in package '{}' does not match dependency's package name '{}'",
@@ -830,30 +849,6 @@ impl ResolvedGraph {
         self.package_table.get(package_ident).unwrap()
     }
 
-    fn print_info_dfs(&self, current_node: &PackageName, tree: &mut TreeBuilder) -> Result<()> {
-        let pkg = self.package_table.get(current_node).unwrap();
-
-        for (name, addr) in &pkg.resolution_table {
-            tree.add_empty_child(format!("{}:0x{}", name, addr.short_str_lossless()));
-        }
-
-        for node in self.graph.neighbors_directed(*current_node, Outgoing) {
-            tree.begin_child(node.to_string());
-            self.print_info_dfs(&node, tree)?;
-            tree.end_child();
-        }
-        Ok(())
-    }
-
-    pub fn print_info(&self) -> Result<()> {
-        let root = self.root_package.package.name;
-        let mut tree = TreeBuilder::new(root.to_string());
-        self.print_info_dfs(&root, &mut tree)?;
-        let tree = tree.build();
-        print_tree(&tree)?;
-        Ok(())
-    }
-
     pub fn extract_named_address_mapping(
         &self,
     ) -> impl Iterator<Item = (Symbol, AccountAddress)> + '_ {
@@ -982,7 +977,7 @@ fn confirm_git_available() -> Result<()> {
                 );
             } else {
                 bail!(
-                    "Unexpected error occured when checking for presence of `git`: {:#}",
+                    "Unexpected error occurred when checking for presence of `git`: {:#}",
                     e
                 );
             }

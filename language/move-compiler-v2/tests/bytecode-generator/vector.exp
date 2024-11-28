@@ -1,0 +1,25 @@
+// -- Model dump before bytecode pipeline
+module 0x42::vector {
+    private fun create(): vector<u64> {
+        [Number(1), Number(2), Number(3)]
+    }
+} // end 0x42::vector
+
+// -- Sourcified model before bytecode pipeline
+module 0x42::vector {
+    fun create(): vector<u64> {
+        vector[1, 2, 3]
+    }
+}
+
+============ initial bytecode ================
+
+[variant baseline]
+fun vector::create(): vector<u64> {
+     var $t0: vector<u64>
+  0: $t0 := ["1", "2", "3"]
+  1: return $t0
+}
+
+
+============ bytecode verification succeeded ========

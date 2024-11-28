@@ -10,7 +10,8 @@ use codespan_reporting::term::termcolor::{ColorChoice, StandardStream, WriteColo
 #[allow(unused_imports)]
 use log::{debug, info, warn};
 use move_abigen::Abigen;
-use move_compiler::shared::PackagePaths;
+use move_compiler::shared::{known_attributes::KnownAttribute, PackagePaths};
+use move_compiler_v2::{env_pipeline::rewrite_target::RewritingScope, Experiment};
 use move_docgen::Docgen;
 use move_errmapgen::ErrmapGen;
 use move_model::{
@@ -20,10 +21,10 @@ use move_model::{
 use move_prover_boogie_backend::{
     add_prelude, boogie_wrapper::BoogieWrapper, bytecode_translator::BoogieTranslator,
 };
-use move_stackless_bytecode::{
-    function_target_pipeline::FunctionTargetsHolder, number_operation::GlobalNumberOperationState,
-    pipeline_factory,
+use move_prover_bytecode_pipeline::{
+    number_operation::GlobalNumberOperationState, pipeline_factory,
 };
+use move_stackless_bytecode::function_target_pipeline::FunctionTargetsHolder;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -45,22 +46,56 @@ pub fn run_move_prover<W: WriteColor>(
     options: Options,
 ) -> anyhow::Result<()> {
     let now = Instant::now();
-    // Run the model builder.
     let addrs = parse_addresses_from_options(options.move_named_address_values.clone())?;
-    let env = run_model_builder_with_options(
+    let mut env = run_model_builder_with_options(
         vec![PackagePaths {
             name: None,
             paths: options.move_sources.clone(),
             named_address_map: addrs.clone(),
         }],
+        vec![],
         vec![PackagePaths {
             name: None,
             paths: options.move_deps.clone(),
             named_address_map: addrs,
         }],
         options.model_builder.clone(),
+        options.skip_attribute_checks,
+        KnownAttribute::get_all_attribute_names(),
     )?;
-    run_move_prover_with_model(&env, error_writer, options, Some(now))
+    run_move_prover_with_model(&mut env, error_writer, options, Some(now))
+}
+
+pub fn run_move_prover_v2<W: WriteColor>(
+    error_writer: &mut W,
+    options: Options,
+) -> anyhow::Result<()> {
+    let now = Instant::now();
+    let cloned_options = options.clone();
+    let compiler_options = move_compiler_v2::Options {
+        dependencies: cloned_options.move_deps,
+        named_address_mapping: cloned_options.move_named_address_values,
+        output_dir: cloned_options.output_path,
+        language_version: cloned_options.language_version,
+        compiler_version: None, // TODO: need to pass v2.x here
+        skip_attribute_checks: true,
+        known_attributes: Default::default(),
+        testing: cloned_options.backend.stable_test_output,
+        experiments: vec![],
+        experiment_cache: Default::default(),
+        sources: cloned_options.move_sources,
+        sources_deps: vec![],
+        warn_deprecated: false,
+        warn_of_deprecation_use_in_aptos_libs: false,
+        warn_unused: false,
+        whole_program: false,
+        compile_test_code: false,
+        compile_verify_code: true,
+        external_checks: vec![],
+    };
+
+    let mut env = move_compiler_v2::run_move_compiler_for_analysis(error_writer, compiler_options)?;
+    run_move_prover_with_model_v2(&mut env, error_writer, options, now)
 }
 
 /// Create the initial number operation state for each function and struct
@@ -76,26 +111,45 @@ pub fn create_init_num_operation_state(env: &GlobalEnv) {
             }
         }
     }
-    //global_state.create_initial_exp_oper_state(env);
     env.set_extension(global_state);
 }
 
 pub fn run_move_prover_with_model<W: WriteColor>(
-    env: &GlobalEnv,
+    env: &mut GlobalEnv,
     error_writer: &mut W,
     options: Options,
     timer: Option<Instant>,
 ) -> anyhow::Result<()> {
     let now = timer.unwrap_or_else(Instant::now);
+    debug!("global env before prover run: {}", env.dump_env_all());
 
-    let build_duration = now.elapsed();
+    // Run the compiler v2 checking and rewriting pipeline
+    let compiler_options = move_compiler_v2::Options::default()
+        .set_experiment(Experiment::OPTIMIZE, false)
+        .set_experiment(Experiment::SPEC_REWRITE, true);
+    env.set_extension(compiler_options.clone());
+    let pipeline = move_compiler_v2::check_and_rewrite_pipeline(
+        &compiler_options,
+        true,
+        RewritingScope::Everything,
+    );
+    pipeline.run(env);
+    run_move_prover_with_model_v2(env, error_writer, options, now)
+}
+
+pub fn run_move_prover_with_model_v2<W: WriteColor>(
+    env: &mut GlobalEnv,
+    error_writer: &mut W,
+    options: Options,
+    start_time: Instant,
+) -> anyhow::Result<()> {
+    let build_duration = start_time.elapsed();
     check_errors(
         env,
         &options,
         error_writer,
         "exiting with model building errors",
     )?;
-    env.report_diag(error_writer, options.prover.report_severity);
 
     // Add the prover options as an extension to the environment, so they can be accessed
     // from there.
@@ -106,16 +160,16 @@ pub fn run_move_prover_with_model<W: WriteColor>(
 
     // Until this point, prover and docgen have same code. Here we part ways.
     if options.run_docgen {
-        return run_docgen(env, &options, error_writer, now);
+        return run_docgen(env, &options, error_writer, start_time);
     }
     // Same for ABI generator.
     if options.run_abigen {
-        return run_abigen(env, &options, now);
+        return run_abigen(env, &options, start_time);
     }
     // Same for the error map generator
     if options.run_errmapgen {
         return {
-            run_errmapgen(env, &options, now);
+            run_errmapgen(env, &options, start_time);
             Ok(())
         };
     }
@@ -226,7 +280,7 @@ pub fn create_and_process_bytecode(options: &Options, env: &GlobalEnv) -> Functi
     let output_dir = Path::new(&options.output_path)
         .parent()
         .expect("expect the parent directory of the output path to exist");
-    let output_prefix = options.move_sources.get(0).map_or("bytecode", |s| {
+    let output_prefix = options.move_sources.first().map_or("bytecode", |s| {
         Path::new(s).file_name().unwrap().to_str().unwrap()
     });
 
@@ -259,7 +313,14 @@ pub fn create_and_process_bytecode(options: &Options, env: &GlobalEnv) -> Functi
             .into_os_string()
             .into_string()
             .unwrap();
-        pipeline.run_with_dump(env, &mut targets, &dump_file_base, options.prover.dump_cfg)
+        pipeline.run_with_dump(
+            env,
+            &mut targets,
+            &dump_file_base,
+            options.prover.dump_cfg,
+            &|_| {},
+            || true,
+        )
     } else {
         pipeline.run(env, &mut targets);
     }

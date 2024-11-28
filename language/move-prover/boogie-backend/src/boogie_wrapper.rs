@@ -270,7 +270,8 @@ impl<'env> BoogieWrapper<'env> {
                 // Brute-force filter out "at" entries which look alike. This is cheaper than
                 // avoiding producing them, because of the step of converting locations to line
                 // numbers.
-                let display_str = format!("    {}{}", loc.display_line_only(self.env), info);
+                let display_str =
+                    format!("    {}{}", loc.display_file_name_and_line(self.env), info);
                 if (display.is_empty() || display[display.len() - 1] != display_str)
                     && !display_str.contains("<internal>")
                 {
@@ -781,7 +782,7 @@ impl<'env> BoogieWrapper<'env> {
                         kind: BoogieErrorKind::Inconclusive,
                         loc,
                         message: if msg.contains("out of resource") || msg.contains("timed out") {
-                            let timeout = self.options.adjust_timeout(self.options.vc_timeout);
+                            let timeout = self.options.vc_timeout;
                             format!(
                                 "verification out of resources/timeout (global timeout set to {}s)",
                                 timeout
@@ -867,7 +868,7 @@ fn create_domain_map(
     let mut default_domain = None;
 
     let mut insert_map = |elems: &Vec<ModelValue>, val: &ModelValue| -> Option<()> {
-        map.entry(elems[0].clone()).or_insert_with(BTreeMap::new);
+        map.entry(elems[0].clone()).or_default();
         map.get_mut(&elems[0])
             .unwrap()
             .insert(elems[1].extract_number()?, extract_bool(val)?);
@@ -1628,6 +1629,7 @@ impl ModelValue {
     }
 }
 
+#[allow(dead_code)]
 /// Represents an expression descriptor.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct ExpDescriptor {

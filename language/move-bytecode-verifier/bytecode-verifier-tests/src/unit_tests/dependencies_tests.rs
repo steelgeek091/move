@@ -34,6 +34,7 @@ fn mk_script_function_module() -> CompiledModule {
                 parameters: SignatureIndex(0),
                 return_: SignatureIndex(0),
                 type_parameters: vec![],
+                access_specifiers: None,
             },
             // fun g_fn<T>()
             FunctionHandle {
@@ -42,6 +43,7 @@ fn mk_script_function_module() -> CompiledModule {
                 parameters: SignatureIndex(0),
                 return_: SignatureIndex(0),
                 type_parameters: vec![AbilitySet::EMPTY],
+                access_specifiers: None,
             },
         ],
         function_defs: vec![
@@ -68,6 +70,9 @@ fn mk_script_function_module() -> CompiledModule {
                 }),
             },
         ],
+        struct_variant_handles: vec![],
+        struct_variant_instantiations: vec![],
+        variant_field_handles: vec![],
         signatures: vec![
             Signature(vec![]), // void
         ],
@@ -80,6 +85,7 @@ fn mk_script_function_module() -> CompiledModule {
         struct_def_instantiations: vec![],
         function_instantiations: vec![],
         field_instantiations: vec![],
+        variant_field_instantiations: vec![],
     };
     move_bytecode_verifier::verify_module(&m).unwrap();
     m
@@ -124,6 +130,7 @@ fn mk_invoking_module(use_generic: bool, valid: bool) -> CompiledModule {
                 parameters: SignatureIndex(0),
                 return_: SignatureIndex(0),
                 type_parameters: vec![],
+                access_specifiers: None,
             },
             // 0::M::fn()
             FunctionHandle {
@@ -132,6 +139,7 @@ fn mk_invoking_module(use_generic: bool, valid: bool) -> CompiledModule {
                 parameters: SignatureIndex(0),
                 return_: SignatureIndex(0),
                 type_parameters: vec![],
+                access_specifiers: None,
             },
             // 0::M::g_fn<T>()
             FunctionHandle {
@@ -140,6 +148,7 @@ fn mk_invoking_module(use_generic: bool, valid: bool) -> CompiledModule {
                 parameters: SignatureIndex(0),
                 return_: SignatureIndex(0),
                 type_parameters: vec![AbilitySet::EMPTY],
+                access_specifiers: None,
             },
         ],
         // 0::M::g_fn<u64>()
@@ -160,6 +169,9 @@ fn mk_invoking_module(use_generic: bool, valid: bool) -> CompiledModule {
                 }),
             },
         ],
+        struct_variant_handles: vec![],
+        struct_variant_instantiations: vec![],
+        variant_field_handles: vec![],
         signatures: vec![
             Signature(vec![]),                    // void
             Signature(vec![SignatureToken::U64]), // u64
@@ -172,6 +184,7 @@ fn mk_invoking_module(use_generic: bool, valid: bool) -> CompiledModule {
         friend_decls: vec![],
         struct_def_instantiations: vec![],
         field_instantiations: vec![],
+        variant_field_instantiations: vec![],
     };
     move_bytecode_verifier::verify_module(&m).unwrap();
     m
@@ -208,6 +221,7 @@ fn mk_invoking_script(use_generic: bool) -> CompiledScript {
                 parameters: SignatureIndex(0),
                 return_: SignatureIndex(0),
                 type_parameters: vec![],
+                access_specifiers: None,
             },
             // 0::M::g_fn<T>()
             FunctionHandle {
@@ -216,6 +230,7 @@ fn mk_invoking_script(use_generic: bool) -> CompiledScript {
                 parameters: SignatureIndex(0),
                 return_: SignatureIndex(0),
                 type_parameters: vec![AbilitySet::EMPTY],
+                access_specifiers: None,
             },
         ],
         // 0::M::g_fn<u64>()

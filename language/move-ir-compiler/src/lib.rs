@@ -16,7 +16,6 @@ use move_ir_to_bytecode::{
     compiler::{compile_module, compile_script},
     parser::{parse_module, parse_script},
 };
-use move_ir_types::ast::Metadata;
 
 /// An API for the compiler. Supports setting custom options.
 #[derive(Clone, Debug)]
@@ -53,11 +52,6 @@ impl<'a> Compiler<'a> {
         Ok(self.compile_mod(code)?.0)
     }
 
-    pub fn into_compiled_module_with_metadata(self, code: &str) -> Result<(CompiledModule, Metadata)> {
-        let (compiled_module, _, metadata) = self.compile_mod_with_metadata(code)?;
-        Ok((compiled_module, metadata))
-    }
-
     /// Compiles the module into a serialized form.
     pub fn into_module_blob(self, code: &str) -> Result<Vec<u8>> {
         let compiled_module = self.compile_mod(code)?.0;
@@ -79,12 +73,5 @@ impl<'a> Compiler<'a> {
         let (compiled_module, source_map) =
             compile_module(parsed_module, self.deps.iter().copied())?;
         Ok((compiled_module, source_map))
-    }
-
-    fn compile_mod_with_metadata(self, code: &str) -> Result<(CompiledModule, SourceMap, Metadata)> {
-        let parsed_module = parse_module(code)?;
-        let (compiled_module, source_map) =
-            compile_module(parsed_module.clone(), self.deps.iter().copied())?;
-        Ok((compiled_module, source_map, parsed_module.metadata))
     }
 }

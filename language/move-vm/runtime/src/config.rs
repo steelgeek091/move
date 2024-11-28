@@ -1,43 +1,50 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use move_binary_format::file_format_common::VERSION_MAX;
+use move_binary_format::deserializer::DeserializerConfig;
 use move_bytecode_verifier::VerifierConfig;
+use move_vm_types::loaded_data::runtime_types::TypeBuilder;
+use serde::Serialize;
 
 pub const DEFAULT_MAX_VALUE_NEST_DEPTH: u64 = 128;
 
 /// Dynamic config options for the Move VM.
+#[derive(Clone, Serialize)]
 pub struct VMConfig {
-    pub verifier: VerifierConfig,
-    pub max_binary_format_version: u32,
-    // When this flag is set to true, MoveVM will perform type check at every instruction
-    // execution to ensure that type safety cannot be violated at runtime.
+    pub verifier_config: VerifierConfig,
+    pub deserializer_config: DeserializerConfig,
+    /// When this flag is set to true, MoveVM will perform type checks at every instruction
+    /// execution to ensure that type safety cannot be violated at runtime.
     pub paranoid_type_checks: bool,
-    // When this flag is set to true, MoveVM will check invariant violation in swap_loc
-    pub enable_invariant_violation_check_in_swap_loc: bool,
-    pub type_size_limit: bool,
-    /// Maximum value nest depth for structs
+    pub check_invariant_in_swap_loc: bool,
+    /// Maximum value nest depth for structs.
     pub max_value_nest_depth: Option<u64>,
+    pub type_max_cost: u64,
+    pub type_base_cost: u64,
+    pub type_byte_cost: u64,
+    pub delayed_field_optimization_enabled: bool,
+    pub ty_builder: TypeBuilder,
+    pub disallow_dispatch_for_native: bool,
+    pub use_compatibility_checker_v2: bool,
+    pub use_loader_v2: bool,
 }
 
 impl Default for VMConfig {
     fn default() -> Self {
         Self {
-            verifier: VerifierConfig::default(),
-            max_binary_format_version: VERSION_MAX,
+            verifier_config: VerifierConfig::default(),
+            deserializer_config: DeserializerConfig::default(),
             paranoid_type_checks: false,
-            enable_invariant_violation_check_in_swap_loc: true,
-            type_size_limit: false,
+            check_invariant_in_swap_loc: true,
             max_value_nest_depth: Some(DEFAULT_MAX_VALUE_NEST_DEPTH),
-        }
-    }
-}
-
-impl VMConfig {
-    pub fn production() -> Self {
-        Self {
-            verifier: VerifierConfig::production(),
-            ..Self::default()
+            type_max_cost: 0,
+            type_base_cost: 0,
+            type_byte_cost: 0,
+            delayed_field_optimization_enabled: false,
+            ty_builder: TypeBuilder::with_limits(128, 20),
+            disallow_dispatch_for_native: true,
+            use_compatibility_checker_v2: true,
+            use_loader_v2: true,
         }
     }
 }

@@ -295,7 +295,7 @@ impl<'env> Context<'env> {
             .expect("ICE should have failed in naming")
     }
 
-    fn struct_definition(&self, m: &ModuleIdent, n: &StructName) -> &StructDefinition {
+    pub fn struct_definition(&self, m: &ModuleIdent, n: &StructName) -> &StructDefinition {
         let minfo = self.module_info(m);
         minfo
             .structs
@@ -835,10 +835,11 @@ pub fn make_function_type(
         Visibility::Internal if in_current_module => (),
         Visibility::Internal => {
             let internal_msg = format!(
-                "This function is internal to its module. Only '{}' and '{}' functions can \
+                "This function is internal to its module. Only '{}', '{}', and '{}' functions can \
                  be called outside of their module",
                 Visibility::PUBLIC,
-                Visibility::FRIEND
+                Visibility::PACKAGE,
+                Visibility::FRIEND,
             );
             context.env.add_diag(diag!(
                 TypeSafety::Visibility,
@@ -859,6 +860,7 @@ pub fn make_function_type(
                 (vis_loc, internal_msg),
             ));
         },
+        Visibility::Package(_) => panic!("unexpected visibility"),
         Visibility::Public(_) => (),
     };
     (defined_loc, ty_args, params, acquires, return_ty)
@@ -1574,7 +1576,7 @@ fn join_tvar(
     }
 }
 
-fn forward_tvar(subst: &Subst, id: TVar) -> TVar {
+pub fn forward_tvar(subst: &Subst, id: TVar) -> TVar {
     let mut cur = id;
     loop {
         match subst.get(cur) {
@@ -1662,7 +1664,7 @@ pub fn check_non_fun(context: &mut Context, ty: &Type) {
             TypeSafety::InvalidFunctionType,
             (
                 *loc,
-                "function type only allowed for inline function arguments"
+                "function-typed values only allowed for inline function arguments"
             )
         ))
     }

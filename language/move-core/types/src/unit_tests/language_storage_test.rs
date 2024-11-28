@@ -4,8 +4,8 @@
 
 use crate::{
     account_address::AccountAddress,
-    gas_algebra::AbstractMemorySize,
-    identifier::{IdentStr, Identifier},
+    ident_str,
+    identifier::Identifier,
     language_storage::{ModuleId, StructTag, TypeTag},
 };
 use bcs::test_helpers::assert_canonical_encode_decode;
@@ -22,9 +22,9 @@ proptest! {
 fn test_type_tag_deserialize_case_insensitive() {
     let org_struct_tag = StructTag {
         address: AccountAddress::ONE,
-        module: Identifier::from(IdentStr::new("TestModule").unwrap()),
-        name: Identifier::from(IdentStr::new("TestStruct").unwrap()),
-        type_params: vec![
+        module: Identifier::from(ident_str!("TestModule")),
+        name: Identifier::from(ident_str!("TestStruct")),
+        type_args: vec![
             TypeTag::U8,
             TypeTag::U16,
             TypeTag::U32,
@@ -41,14 +41,14 @@ fn test_type_tag_deserialize_case_insensitive() {
 
     let upper_case_json = format!(
         r##"{{"address":"{}","module":"TestModule","name":"TestStruct","type_params":["U8","U16","U32","U64","U128","U256","Bool","Address","Signer"]}}"##,
-        AccountAddress::ONE
+        AccountAddress::ONE.to_hex()
     );
     let upper_case_decoded = serde_json::from_str(upper_case_json.as_str()).unwrap();
     assert_eq!(org_struct_tag, upper_case_decoded);
 
     let lower_case_json = format!(
         r##"{{"address":"{}","module":"TestModule","name":"TestStruct","type_args":["u8","u16","u32","u64","u128","u256","bool","address","signer"]}}"##,
-        AccountAddress::ONE
+        AccountAddress::ONE.to_hex()
     );
     let lower_case_decoded = serde_json::from_str(lower_case_json.as_str()).unwrap();
     assert_eq!(org_struct_tag, lower_case_decoded);

@@ -17,10 +17,15 @@ use codespan_reporting::{
         Config,
     },
 };
-use move_command_line_common::{env::read_env_var, files::FileHash};
+use move_command_line_common::{
+    env::{read_bool_env_var, read_env_var},
+    files::FileHash,
+};
 use move_ir_types::location::*;
 use move_symbol_pool::Symbol;
+use once_cell::sync::Lazy;
 use std::{
+    backtrace::{Backtrace, BacktraceStatus},
     collections::{BTreeMap, HashMap, HashSet},
     iter::FromIterator,
     ops::Range,
@@ -58,7 +63,16 @@ pub struct Diagnostics {
 pub fn report_diagnostics(files: &FilesSourceText, diags: Diagnostics) -> ! {
     let should_exit = true;
     report_diagnostics_impl(files, diags, should_exit);
-    std::process::exit(1)
+    unreachable!()
+}
+
+// report diagnostics, but do not exit if diags are all warnings
+pub fn report_diagnostics_exit_on_error(files: &FilesSourceText, diags: Diagnostics) {
+    let should_exit = diags
+        .diagnostics
+        .iter()
+        .any(|diag| diag.info.severity() > Severity::Warning);
+    report_diagnostics_impl(files, diags, should_exit);
 }
 
 pub fn report_warnings(files: &FilesSourceText, warnings: Diagnostics) {
@@ -269,14 +283,38 @@ impl Diagnostic {
         secondary_labels: impl IntoIterator<Item = (Loc, impl ToString)>,
         notes: impl IntoIterator<Item = impl ToString>,
     ) -> Self {
+        let info = code.into_info();
+        let label = Diagnostic::add_backtrace(
+            &label.to_string(),
+            false, /*info.severity() == Severity::Bug*/
+        );
         Diagnostic {
-            info: code.into_info(),
+            info,
             primary_label: (loc, label.to_string()),
             secondary_labels: secondary_labels
                 .into_iter()
                 .map(|(loc, msg)| (loc, msg.to_string()))
                 .collect(),
             notes: notes.into_iter().map(|msg| msg.to_string()).collect(),
+        }
+    }
+
+    fn add_backtrace(msg: &str, _is_bug: bool) -> String {
+        // Note that you need both MOVE_COMPILER_BACKTRACE=1 and RUST_BACKTRACE=1 for this to
+        // actually generate a backtrace.
+        static DUMP_BACKTRACE: Lazy<bool> = Lazy::new(|| {
+            read_bool_env_var(crate::command_line::MOVE_COMPILER_BACKTRACE_ENV_VAR)
+                | read_bool_env_var(crate::command_line::MVC_BACKTRACE_ENV_VAR)
+        });
+        if *DUMP_BACKTRACE {
+            let bt = Backtrace::capture();
+            if BacktraceStatus::Captured == bt.status() {
+                format!("{}\nBacktrace: {:#?}", msg, bt)
+            } else {
+                msg.to_owned()
+            }
+        } else {
+            msg.to_owned()
         }
     }
 

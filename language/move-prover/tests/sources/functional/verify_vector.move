@@ -88,7 +88,7 @@ module 0x42::VerifyVector {
     spec verify_singleton {
         aborts_if false;
         ensures len(result) == 1;
-        ensures result[0] == e;
+        ensures result == vector[e];
     }
 
     // Reverses the order of the elements in the vector in place.
@@ -114,6 +114,24 @@ module 0x42::VerifyVector {
         };
     }
     spec verify_reverse {
+        aborts_if false;
+        ensures forall i in 0..len(v): v[i] == old(v)[len(v)-1-i];
+    }
+
+    fun verify_reverse_with_unroll<Element>(v: &mut vector<Element>) {
+        let vlen = vector::length(v);
+        if (vlen == 0) return ();
+
+        let front_index = 0;
+        let back_index = vlen -1;
+        while (front_index < back_index) {
+            vector::swap(v, front_index, back_index);
+            front_index = front_index + 1;
+            back_index = back_index - 1;
+        };
+    }
+    spec verify_reverse_with_unroll {
+        pragma unroll=3;
         aborts_if false;
         ensures forall i in 0..len(v): v[i] == old(v)[len(v)-1-i];
     }
@@ -147,6 +165,21 @@ module 0x42::VerifyVector {
         vector::destroy_empty(other);
     }
     spec verify_append {
+        ensures len(v) == old(len(v)) + len(other);
+        ensures v[0..len(old(v))] == old(v);
+        ensures v[len(old(v))..len(v)] == other;
+    }
+
+    fun verify_append_with_unroll<Element>(v: &mut vector<Element>, other: vector<Element>) {
+        let o = &mut other;
+        vector::reverse(o);
+        while (!vector::is_empty(o)) {
+            vector::push_back(v, vector::pop_back(o))
+        };
+        vector::destroy_empty(other);
+    }
+    spec verify_append_with_unroll {
+        pragma unroll=3;
         ensures len(v) == old(len(v)) + len(other);
         ensures v[0..len(old(v))] == old(v);
         ensures v[len(old(v))..len(v)] == other;
@@ -202,6 +235,24 @@ module 0x42::VerifyVector {
         ensures !result_1 ==> result_2 == 0; // return 0 if v does not contain e
     }
 
+    fun verify_index_of_with_unroll<Element>(v: &vector<Element>, e: &Element): (bool, u64) {
+        let i = 0;
+        let len = vector::length(v);
+        while (i < len) {
+            if (vector::borrow(v, i) == e) return (true, i);
+            i = i + 1;
+        };
+        (false, 0)
+    }
+    spec verify_index_of_with_unroll {
+        pragma unroll=3;
+        aborts_if false;
+        ensures result_1 == (exists x in v: x==e); // whether v contains e or not
+        ensures result_1 ==> v[result_2] == e; // if true, return the index where v contains e
+        ensures result_1 ==> (forall i in 0..result_2: v[i]!=e); // ensure the smallest index
+        ensures !result_1 ==> result_2 == 0; // return 0 if v does not contain e
+    }
+
     fun verify_model_index_of<Element>(v: &vector<Element>, e: &Element): (bool, u64) {
         vector::index_of(v, e) // inlining the built-in Boogie procedure
     }
@@ -232,6 +283,24 @@ module 0x42::VerifyVector {
         false
     }
     spec verify_contains {
+        aborts_if false;
+        ensures result == (exists x in v: x==e);
+    }
+
+    fun verify_contains_with_unroll<Element>(v: &vector<Element>, e: &Element): bool {
+        let i = 0;
+        let len = vector::length(v);
+        while (i < len) {
+            if (vector::borrow(v, i) == e) return true;
+            i = i + 1;
+        };
+        spec {
+           assert !(exists x in v: x==e);
+        };
+        false
+    }
+    spec verify_contains_with_unroll {
+        pragma unroll=3;
         aborts_if false;
         ensures result == (exists x in v: x==e);
     }
@@ -278,6 +347,28 @@ module 0x42::VerifyVector {
         ensures old(v[j]) == result;
     }
 
+    fun verify_remove_with_unroll<Element>(v: &mut vector<Element>, j: u64): Element {
+        let vlen = vector::length(v);
+        let i = j;
+        // i out of bounds; abort
+        if (i >= vlen) abort 10;
+
+        vlen = vlen - 1;
+        while (i < vlen) {
+            vector::swap(v, i, i + 1);
+            i = i + 1;
+        };
+        vector::pop_back(v)
+    }
+    spec verify_remove_with_unroll {
+        pragma unroll=3;
+        aborts_if j >= len(v);
+        ensures len(v) == len(old(v)) - 1;
+        ensures v[0..j] == old(v[0..j]);
+        ensures v[j..len(v)] == old(v[j+1..len(v)]);
+        ensures old(v[j]) == result;
+    }
+
     // Remove the `i`th element E of the vector, shifting all subsequent elements
     // It is O(n) and preserves ordering
     fun verify_model_remove<Element>(v: &mut vector<Element>, i: u64): Element {
@@ -317,5 +408,39 @@ module 0x42::VerifyVector {
         ensures len(v) == len(old(v)) - 1;
         ensures v == old(update(v,i,v[len(v)-1])[0..len(v)-1]);
         ensures old(v[i]) == result;
+    }
+
+    fun vector_operator_in_function<Element: copy + drop>(e1: Element, e2: Element, e3: Element): vector<Element> {
+        vector[e1, e2, e3]
+    }
+
+    fun spec_with_vector_operator<Element: copy + drop>(e1: Element, e2: Element, e3: Element): (vector<Element>, vector<Element>) {
+        let v0 = vector::empty();
+        let v3 = vector::empty();
+        vector::push_back(&mut v3, e1);
+        spec {
+            assert v3 == vector[e1];
+        };
+        vector::push_back(&mut v3, e2);
+        spec {
+            assert v3 == vector[e1, e2];
+        };
+        vector::push_back(&mut v3, e3);
+        spec {
+            assert v3 == vector_operator_in_function(e1, e2, e3);
+        };
+        vector::push_back(&mut v3, e1);
+        spec {
+            assert v3 == vector[e1, e2, e3, e1];
+        };
+        vector::push_back(&mut v3, e2);
+        spec {
+            assert v3 == vector[e1, e2, e3, e1, e2];
+        };
+        (v3, v0)
+    }
+    spec spec_with_vector_operator {
+        ensures result_2 == vector[];
+        ensures result_1 == concat(vector_operator_in_function(e1, e2, e3), vector[e1, e2]);
     }
 }

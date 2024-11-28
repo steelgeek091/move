@@ -57,10 +57,24 @@ const fn all_bytes_valid(b: &[u8], start_offset: usize) -> bool {
     true
 }
 
+/// Returns `true` if all bytes in `b` after the offset `start_offset` are valid
+/// ASCII numeric characters.
+const fn all_bytes_numeric(b: &[u8], start_offset: usize) -> bool {
+    let mut i = start_offset;
+    while i < b.len() {
+        if !(b[i] as char).is_ascii_digit() {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
 /// Describes what identifiers are allowed.
 ///
 /// For now this is deliberately restrictive -- we would like to evolve this in the future.
-// TODO: "<SELF>" is coded as an exception. It should be removed once CompiledScript goes away.
+/// TODO: `<SELF>` and `<SELF>_[0-9]+` are coded as exceptions.
+///       They should be removed once CompiledScript goes away.
 // Note: needs to be pub as it's used in the `ident_str!` macro.
 pub const fn is_valid(s: &str) -> bool {
     // Rust const fn's don't currently support slicing or indexing &str's, so we
@@ -69,6 +83,7 @@ pub const fn is_valid(s: &str) -> bool {
     let b = s.as_bytes();
     match b {
         b"<SELF>" => true,
+        [b'<', b'S', b'E', b'L', b'F', b'>', b'_', ..] if b.len() > 7 => all_bytes_numeric(b, 7),
         [b'a'..=b'z', ..] | [b'A'..=b'Z', ..] => all_bytes_valid(b, 1),
         [b'_', ..] if b.len() > 1 => all_bytes_valid(b, 1),
         _ => false,
@@ -76,11 +91,12 @@ pub const fn is_valid(s: &str) -> bool {
 }
 
 /// A regex describing what identifiers are allowed. Used for proptests.
-// TODO: "<SELF>" is coded as an exception. It should be removed once CompiledScript goes away.
+// TODO: "<SELF>" and "<SELF>_[0-9]+ are coded as exceptions.
+//       They should be removed once CompiledScript goes away.
 #[cfg(any(test, feature = "fuzzing"))]
 #[allow(dead_code)]
 pub(crate) static ALLOWED_IDENTIFIERS: &str =
-    r"(?:[a-zA-Z][a-zA-Z0-9_]*)|(?:_[a-zA-Z0-9_]+)|(?:<SELF>)";
+    r"(?:[a-zA-Z][a-zA-Z0-9_]*)|(?:_[a-zA-Z0-9_]+)|(?:<SELF>)|(?:<SELF>_[0-9]+)";
 #[cfg(any(test, feature = "fuzzing"))]
 pub(crate) static ALLOWED_NO_SELF_IDENTIFIERS: &str =
     r"(?:[a-zA-Z][a-zA-Z0-9_]*)|(?:_[a-zA-Z0-9_]+)";
@@ -89,7 +105,10 @@ pub(crate) static ALLOWED_NO_SELF_IDENTIFIERS: &str =
 ///
 /// For more details, see the module level documentation.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[cfg_attr(any(test, feature = "fuzzing"), derive(arbitrary::Arbitrary))]
+#[cfg_attr(
+    any(test, feature = "fuzzing"),
+    derive(arbitrary::Arbitrary, dearbitrary::Dearbitrary)
+)]
 pub struct Identifier(Box<str>);
 // An identifier cannot be mutated so use Box<str> instead of String -- it is 1 word smaller.
 

@@ -1,27 +1,41 @@
+// -- Model dump before bytecode pipeline
+module 0x8675309::M {
+    struct R {
+        f: u64,
+        b: u8,
+    }
+    private fun t0(x: u64,b: u8,r: R) {
+        0;
+        1;
+        0;
+        0;
+        1;
+        0;
+        0;
+        Shl<u64>(Copy(x), Copy(b));
+        Shl<u64>(select M::R.f<R>(r), select M::R.b<R>(r));
+        Shl<u64>(Shl<u64>(Shl<u64>(1, select M::R.b<R>(r)), select M::R.b<R>(r)), 0);
+        M::R{ f: _, b: _ } = r
+    }
+} // end 0x8675309::M
 
-Diagnostics:
-error: no matching declaration of `<<`
-   ┌─ tests/checking/typing/binary_shl.move:15:9
-   │
-15 │         copy x << copy b;
-   │         ^^^^^^^^^^^^^^^^
-   │
-   = outruled candidate `<<(u8, u8): u8` (expected `u8` but found `u64` for argument 1)
-   = outruled candidate `<<(u16, u16): u16` (expected `u16` but found `u64` for argument 1)
-   = outruled candidate `<<(u32, u32): u32` (expected `u32` but found `u64` for argument 1)
-   = outruled candidate `<<(u64, u64): u64` (expected `u64` but found `u8` for argument 2)
-   = outruled candidate `<<(u128, u128): u128` (expected `u128` but found `u64` for argument 1)
-   = outruled candidate `<<(u256, u256): u256` (expected `u256` but found `u64` for argument 1)
-
-error: no matching declaration of `<<`
-   ┌─ tests/checking/typing/binary_shl.move:16:9
-   │
-16 │         r.f << r.b;
-   │         ^^^^^^^^^^
-   │
-   = outruled candidate `<<(u8, u8): u8` (expected `u8` but found `u64` for argument 1)
-   = outruled candidate `<<(u16, u16): u16` (expected `u16` but found `u64` for argument 1)
-   = outruled candidate `<<(u32, u32): u32` (expected `u32` but found `u64` for argument 1)
-   = outruled candidate `<<(u64, u64): u64` (expected `u64` but found `u8` for argument 2)
-   = outruled candidate `<<(u128, u128): u128` (expected `u128` but found `u64` for argument 1)
-   = outruled candidate `<<(u256, u256): u256` (expected `u256` but found `u64` for argument 1)
+// -- Sourcified model before bytecode pipeline
+module 0x8675309::M {
+    struct R {
+        f: u64,
+        b: u8,
+    }
+    fun t0(x: u64, b: u8, r: R) {
+        0;
+        1;
+        0;
+        0;
+        1u8;
+        0u128;
+        0;
+        (copy x) << (copy b);
+        r.f << r.b;
+        1 << r.b << r.b << 0u8;
+        R{f: _,b: _} = r
+    }
+}

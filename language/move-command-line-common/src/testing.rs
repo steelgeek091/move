@@ -2,12 +2,22 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::env::read_bool_env_var;
+use crate::env::{get_move_compiler_v2_from_env, read_bool_env_var};
 
 /// Extension for raw output files
 pub const OUT_EXT: &str = "out";
 /// Extension for expected output files
 pub const EXP_EXT: &str = "exp";
+/// Extension for expected output files compiled by v2
+pub const EXP_EXT_V2: &str = "v2_exp";
+
+pub fn get_compiler_exp_extension() -> &'static str {
+    if get_move_compiler_v2_from_env() {
+        EXP_EXT_V2
+    } else {
+        EXP_EXT
+    }
+}
 
 /// If any of these env vars is set, the test harness should overwrite
 /// the existing .exp files with the output instead of checking
@@ -57,6 +67,32 @@ pub fn format_diff(expected: impl AsRef<str>, actual: impl AsRef<str>) -> String
                 ret.push_str("\x1B[91m");
                 ret.push_str(x);
                 ret.push_str("\x1B[0m");
+                ret.push('\n');
+            },
+        }
+    }
+    ret
+}
+
+pub fn format_diff_no_color(expected: impl AsRef<str>, actual: impl AsRef<str>) -> String {
+    use difference::*;
+
+    let changeset = Changeset::new(expected.as_ref(), actual.as_ref(), "\n");
+
+    let mut ret = String::new();
+
+    for seq in changeset.diffs {
+        match &seq {
+            Difference::Same(x) => {
+                ret.push_str(&format!("= {}", x.replace('\n', "\n= ")));
+                ret.push('\n');
+            },
+            Difference::Add(x) => {
+                ret.push_str(&format!("+ {}", x.replace('\n', "\n+ ")));
+                ret.push('\n');
+            },
+            Difference::Rem(x) => {
+                ret.push_str(&format!("- {}", x.replace('\n', "\n- ")));
                 ret.push('\n');
             },
         }

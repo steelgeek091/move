@@ -114,7 +114,7 @@ impl<'a> FunctionGenerator<'a> {
             // Emit state machine to represent control flow.
             // TODO: Eliminate the need for this, see also
             //    https://medium.com/leaningtech/solving-the-structured-control-flow-problem-once-and-for-all-5123117b1ee2
-            if cfg.successors(entry_bb).iter().all(|b| cfg.is_dummmy(*b)) {
+            if cfg.successors(entry_bb).iter().all(|b| cfg.is_dummy(*b)) {
                 // In this trivial case, we have only one block and can omit the state machine
                 if let BlockContent::Basic { lower, upper } = cfg.content(entry_bb) {
                     for offs in *lower..*upper + 1 {
@@ -174,7 +174,7 @@ impl<'a> FunctionGenerator<'a> {
     /// Get the actual entry block, skipping trailing dummy blocks.
     fn get_actual_entry_block(cfg: &StacklessControlFlowGraph) -> BlockId {
         let mut entry_bb = cfg.entry_block();
-        while cfg.is_dummmy(entry_bb) {
+        while cfg.is_dummy(entry_bb) {
             assert_eq!(cfg.successors(entry_bb).len(), 1);
             entry_bb = *cfg.successors(entry_bb).iter().last().unwrap();
         }
@@ -376,7 +376,7 @@ impl<'a> FunctionGenerator<'a> {
                             local(&srcs[0]),
                         )
                     },
-                    Destroy => {
+                    Drop => {
                         print_loc();
                         self.destroy(ctx, &get_local_type(srcs[0]), local(&srcs[0]))
                     },
@@ -459,7 +459,7 @@ impl<'a> FunctionGenerator<'a> {
                     },
                     // FreezeRef transforms a mutable reference to an immutable one so just
                     // treat it as an assignment.
-                    FreezeRef => {
+                    FreezeRef(_) => {
                         print_loc();
                         self.assign(ctx, target, dest[0], local(&srcs[0]))
                     },
@@ -545,8 +545,20 @@ impl<'a> FunctionGenerator<'a> {
                             builtin(YulFunction::Neq, dest, srcs)
                         }
                     },
+
+                    // Unimplemented
+                    Vector => unimplemented!("vector"),
+                    TestVariant(..)
+                    | PackVariant(..)
+                    | UnpackVariant(..)
+                    | BorrowVariantField(..) => {
+                        unimplemented!("variants")
+                    },
+
                     // Specification or other operations which can be ignored here
-                    GetField(_, _, _, _)
+                    Release
+                    | GetField(_, _, _, _)
+                    | GetVariantField(_, _, _, _, _)
                     | GetGlobal(_, _, _)
                     | IsParent(_, _)
                     | WriteBack(_, _)
@@ -571,7 +583,12 @@ impl<'a> FunctionGenerator<'a> {
                 }
             },
 
-            Label(_, _) | Nop(_) | SaveMem(_, _, _) | SaveSpecVar(_, _, _) | Prop(_, _, _) => {
+            SpecBlock(..)
+            | Label(_, _)
+            | Nop(_)
+            | SaveMem(_, _, _)
+            | SaveSpecVar(_, _, _)
+            | Prop(_, _, _) => {
                 // These opcodes are not needed, ignore them
             },
         }

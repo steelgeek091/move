@@ -2,6 +2,8 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(clippy::arc_with_non_send_sync)]
+
 //! Utilities for property-based testing.
 
 use crate::file_format::{
@@ -30,7 +32,7 @@ use constants::ConstantPoolGen;
 use functions::{
     FnDefnMaterializeState, FnHandleMaterializeState, FunctionDefinitionGen, FunctionHandleGen,
 };
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 
 /// Represents how large [`CompiledModule`] tables can be.
 pub type TableSize = u16;
@@ -87,6 +89,7 @@ pub struct CompiledModuleStrategyGen {
     parameters_count: SizeRange,
     return_count: SizeRange,
     func_type_params: SizeRange,
+    access_specifiers_count: SizeRange,
     acquires_count: SizeRange,
     random_sigs_count: SizeRange,
     tokens_per_random_sig_count: SizeRange,
@@ -103,6 +106,7 @@ impl CompiledModuleStrategyGen {
             parameters_count: (0..4).into(),
             return_count: (0..3).into(),
             func_type_params: (0..3).into(),
+            access_specifiers_count: (0..8).into(),
             acquires_count: (0..2).into(),
             random_sigs_count: (0..5).into(),
             tokens_per_random_sig_count: (0..5).into(),
@@ -181,6 +185,7 @@ impl CompiledModuleStrategyGen {
                 self.parameters_count.clone(),
                 self.return_count.clone(),
                 self.func_type_params.clone(),
+                self.access_specifiers_count.clone(),
             ),
             1..=self.size,
         );
@@ -295,14 +300,10 @@ impl CompiledModuleStrategyGen {
                         identifiers_len,
                         struct_handles,
                     );
-                    let mut struct_def_to_field_count: HashMap<usize, usize> = HashMap::new();
                     let mut struct_defs: Vec<StructDefinition> = vec![];
                     for struct_def_gen in struct_def_gens {
-                        if let (Some(struct_def), offset) = struct_def_gen.materialize(&mut state) {
+                        if let Some(struct_def) = struct_def_gen.materialize(&mut state) {
                             struct_defs.push(struct_def);
-                            if offset > 0 {
-                                struct_def_to_field_count.insert(struct_defs.len() - 1, offset);
-                            }
                         }
                     }
                     let StDefnMaterializeState { struct_handles, .. } = state;
@@ -347,7 +348,6 @@ impl CompiledModuleStrategyGen {
                         &struct_defs,
                         signatures,
                         function_handles,
-                        struct_def_to_field_count,
                     );
                     let mut function_defs: Vec<FunctionDefinition> = vec![];
                     for function_def_gen in function_def_gens {
@@ -362,6 +362,10 @@ impl CompiledModuleStrategyGen {
                         struct_def_instantiations,
                         function_instantiations,
                         field_instantiations,
+                        variant_field_handles,
+                        variant_field_instantiations,
+                        struct_variant_handles,
+                        struct_variant_instantiations,
                     ) = state.return_tables();
 
                     // Build a compiled module
@@ -380,6 +384,11 @@ impl CompiledModuleStrategyGen {
 
                         struct_defs,
                         function_defs,
+
+                        variant_field_handles,
+                        variant_field_instantiations,
+                        struct_variant_handles,
+                        struct_variant_instantiations,
 
                         signatures,
 

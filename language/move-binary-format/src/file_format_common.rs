@@ -13,6 +13,7 @@
 //! It's used to compress mostly indexes into the main binary tables.
 use crate::file_format::Bytecode;
 use anyhow::{bail, Result};
+use move_core_types::value;
 use std::{
     io::{Cursor, Read},
     mem::size_of,
@@ -50,17 +51,22 @@ pub const FUNCTION_HANDLE_INDEX_MAX: u64 = TABLE_INDEX_MAX;
 pub const FUNCTION_INST_INDEX_MAX: u64 = TABLE_INDEX_MAX;
 pub const FIELD_HANDLE_INDEX_MAX: u64 = TABLE_INDEX_MAX;
 pub const FIELD_INST_INDEX_MAX: u64 = TABLE_INDEX_MAX;
+pub const VARIANT_FIELD_HANDLE_INDEX_MAX: u64 = TABLE_INDEX_MAX;
+pub const VARIANT_FIELD_INST_INDEX_MAX: u64 = TABLE_INDEX_MAX;
 pub const STRUCT_DEF_INST_INDEX_MAX: u64 = TABLE_INDEX_MAX;
 pub const CONSTANT_INDEX_MAX: u64 = TABLE_INDEX_MAX;
+pub const STRUCT_VARIANT_HANDLE_INDEX_MAX: u64 = TABLE_INDEX_MAX;
+pub const STRUCT_VARIANT_INST_INDEX_MAX: u64 = TABLE_INDEX_MAX;
 
 pub const BYTECODE_COUNT_MAX: u64 = 65535;
 pub const BYTECODE_INDEX_MAX: u64 = 65535;
 
 pub const LOCAL_INDEX_MAX: u64 = 255;
 
-pub const IDENTIFIER_SIZE_MAX: u64 = 65535;
+pub const LEGACY_IDENTIFIER_SIZE_MAX: u64 = 65535;
+pub const IDENTIFIER_SIZE_MAX: u64 = 255;
 
-pub const CONSTANT_SIZE_MAX: u64 = 131070;
+pub const CONSTANT_SIZE_MAX: u64 = 65535;
 
 pub const METADATA_KEY_SIZE_MAX: u64 = 1023;
 pub const METADATA_VALUE_SIZE_MAX: u64 = 65535;
@@ -71,9 +77,13 @@ pub const ACQUIRES_COUNT_MAX: u64 = 255;
 
 pub const FIELD_COUNT_MAX: u64 = 255;
 pub const FIELD_OFFSET_MAX: u64 = 255;
+pub const VARIANT_COUNT_MAX: u64 = value::VARIANT_COUNT_MAX;
+pub const VARIANT_OFFSET_MAX: u64 = 127;
 
 pub const TYPE_PARAMETER_COUNT_MAX: u64 = 255;
 pub const TYPE_PARAMETER_INDEX_MAX: u64 = 65536;
+
+pub const ACCESS_SPECIFIER_COUNT_MAX: u64 = 64;
 
 pub const SIGNATURE_TOKEN_DEPTH_MAX: usize = 256;
 
@@ -81,6 +91,8 @@ pub const SIGNATURE_TOKEN_DEPTH_MAX: usize = 256;
 ///
 /// The binary contains a subset of those tables. A table specification is a tuple (table type,
 /// start offset, byte count) for a given table.
+///
+/// Notice there must not be more than `max(u8) - 1` tables.
 #[rustfmt::skip]
 #[allow(non_camel_case_types)]
 #[repr(u8)]
@@ -97,10 +109,14 @@ pub enum TableType {
     STRUCT_DEFS             = 0xA,
     STRUCT_DEF_INST         = 0xB,
     FUNCTION_DEFS           = 0xC,
-    FIELD_HANDLE            = 0xD,
+    FIELD_HANDLES           = 0xD,
     FIELD_INST              = 0xE,
     FRIEND_DECLS            = 0xF,
     METADATA                = 0x10,
+    VARIANT_FIELD_HANDLES   = 0x11,
+    VARIANT_FIELD_INST      = 0x12,
+    STRUCT_VARIANT_HANDLES  = 0x13,
+    STRUCT_VARIANT_INST     = 0x14,
 }
 
 /// Constants for signature blob values.
@@ -126,6 +142,59 @@ pub enum SerializedType {
     U256                    = 0xF,
 }
 
+/// A marker for an option in the serialized output.
+#[rustfmt::skip]
+#[allow(non_camel_case_types)]
+#[repr(u8)]
+#[derive(Clone, Copy, Debug)]
+pub enum SerializedOption {
+    NONE                    = 0x1,
+    SOME                    = 0x2,
+}
+
+/// A marker for a boolean in the serialized output.
+#[rustfmt::skip]
+#[allow(non_camel_case_types)]
+#[repr(u8)]
+#[derive(Clone, Copy, Debug)]
+pub enum SerializedBool {
+    FALSE                  = 0x1,
+    TRUE                   = 0x2,
+}
+
+/// A marker for access specifier kind.
+#[rustfmt::skip]
+#[allow(non_camel_case_types)]
+#[repr(u8)]
+#[derive(Clone, Copy, Debug)]
+pub enum SerializedAccessKind {
+    READ                    = 0x1,
+    WRITE                   = 0x2,
+    ACQUIRES                = 0x3,
+}
+
+#[rustfmt::skip]
+#[allow(non_camel_case_types)]
+#[repr(u8)]
+#[derive(Clone, Copy, Debug)]
+pub enum SerializedResourceSpecifier {
+    ANY                     = 0x1,
+    AT_ADDRESS              = 0x2,
+    IN_MODULE               = 0x3,
+    RESOURCE                = 0x4,
+    RESOURCE_INSTANTIATION  = 0x5,
+}
+
+#[rustfmt::skip]
+#[allow(non_camel_case_types)]
+#[repr(u8)]
+#[derive(Clone, Copy, Debug)]
+pub enum SerializedAddressSpecifier {
+    ANY                     = 0x1,
+    LITERAL                 = 0x2,
+    PARAMETER               = 0x3,
+}
+
 #[rustfmt::skip]
 #[allow(non_camel_case_types)]
 #[repr(u8)]
@@ -133,6 +202,7 @@ pub enum SerializedType {
 pub enum SerializedNativeStructFlag {
     NATIVE                  = 0x1,
     DECLARED                = 0x2,
+    DECLARED_VARIANTS       = 0x3,
 }
 
 /// List of opcodes constants.
@@ -218,6 +288,17 @@ pub enum Opcodes {
     CAST_U16                    = 0x4B,
     CAST_U32                    = 0x4C,
     CAST_U256                   = 0x4D,
+    // Since bytecode version 7
+    IMM_BORROW_VARIANT_FIELD    = 0x4E,
+    MUT_BORROW_VARIANT_FIELD    = 0x4F,
+    IMM_BORROW_VARIANT_FIELD_GENERIC    = 0x50,
+    MUT_BORROW_VARIANT_FIELD_GENERIC    = 0x51,
+    PACK_VARIANT                = 0x52,
+    PACK_VARIANT_GENERIC        = 0x53,
+    UNPACK_VARIANT              = 0x54,
+    UNPACK_VARIANT_GENERIC      = 0x55,
+    TEST_VARIANT                = 0x56,
+    TEST_VARIANT_GENERIC        = 0x57,
 }
 
 /// Upper limit on the binary size
@@ -308,8 +389,21 @@ pub(crate) fn write_u64_as_uleb128(binary: &mut BinaryData, mut val: u64) -> Res
     Ok(())
 }
 
+pub fn size_u32_as_uleb128(mut value: usize) -> usize {
+    let mut len = 1;
+    while value >= 0x80 {
+        // 7 (lowest) bits of data get written in a single byte.
+        len += 1;
+        value >>= 7;
+    }
+    len
+}
+
+pub fn bcs_size_of_byte_array(length: usize) -> usize {
+    size_u32_as_uleb128(length) + length
+}
+
 /// Write a `u16` in Little Endian format.
-#[allow(dead_code)]
 pub(crate) fn write_u16(binary: &mut BinaryData, value: u16) -> Result<()> {
     binary.extend(&value.to_le_bytes())
 }
@@ -378,6 +472,11 @@ pub fn read_uleb128_as_u64(cursor: &mut Cursor<&[u8]>) -> Result<u64> {
 // Bytecode evolution
 //
 
+/// From bytecode version 7 onwards, Aptos distinguishes from
+/// other Move flavors by masking the version with the highest
+/// byte 0xA.
+pub const APTOS_BYTECODE_VERSION_MASK: u32 = 0x0A000000;
+
 /// Version 1: the initial version
 pub const VERSION_1: u32 = 1;
 
@@ -405,11 +504,28 @@ pub const VERSION_5: u32 = 5;
 ///  + u16, u32, u256 integers and corresponding Ld, Cast bytecodes
 pub const VERSION_6: u32 = 6;
 
-// Mark which version is the latest version
-pub const VERSION_MAX: u32 = VERSION_6;
+/// Version 7: changes compare to version 6
+/// + access specifiers (read/write set)
+/// + enum types
+pub const VERSION_7: u32 = 7;
+
+/// Version 8: changes compared to version 7
+/// + TBD
+pub const VERSION_8: u32 = 8;
+
+/// Mark which version is the latest version. Should be set to v8 once features
+/// are added.
+pub const VERSION_MAX: u32 = VERSION_7;
+
+/// Mark which version is the default version. This is the version used by default by tools like
+/// the compiler. Notice that this version might be different from the one supported on nodes.
+/// The node's max version is determined by the on-chain config for that node.
+pub const VERSION_DEFAULT: u32 = VERSION_7;
+
+/// Mark which version is the default version if compiling Move 2.
+pub const VERSION_DEFAULT_LANG_V2: u32 = VERSION_7;
 
 // Mark which oldest version is supported.
-// TODO(#145): finish v4 compatibility; as of now, only metadata is implemented
 pub const VERSION_MIN: u32 = VERSION_5;
 
 pub(crate) mod versioned_data {
@@ -418,16 +534,22 @@ pub(crate) mod versioned_data {
     use std::io::{Cursor, Read};
     pub struct VersionedBinary<'a> {
         version: u32,
+        max_identifier_size: u64,
         binary: &'a [u8],
     }
 
     pub struct VersionedCursor<'a> {
         version: u32,
+        max_identifier_size: u64,
         cursor: Cursor<&'a [u8]>,
     }
 
     impl<'a> VersionedBinary<'a> {
-        fn new(binary: &'a [u8], max_version: u32) -> BinaryLoaderResult<(Self, Cursor<&'a [u8]>)> {
+        fn new(
+            binary: &'a [u8],
+            max_version: u32,
+            max_identifier_size: u64,
+        ) -> BinaryLoaderResult<(Self, Cursor<&'a [u8]>)> {
             let mut cursor = Cursor::<&'a [u8]>::new(binary);
             let mut magic = [0u8; BinaryConstants::MOVE_MAGIC_SIZE];
             if let Ok(count) = cursor.read(&mut magic) {
@@ -440,16 +562,25 @@ pub(crate) mod versioned_data {
                     .with_message("Bad binary header".to_string()));
             }
             let version = match read_u32(&mut cursor) {
-                Ok(v) => v,
+                Ok(v) => v & !APTOS_BYTECODE_VERSION_MASK,
                 Err(_) => {
                     return Err(PartialVMError::new(StatusCode::MALFORMED)
                         .with_message("Bad binary header".to_string()));
                 },
             };
             if version == 0 || version > u32::min(max_version, VERSION_MAX) {
-                return Err(PartialVMError::new(StatusCode::UNKNOWN_VERSION));
+                Err(PartialVMError::new(StatusCode::UNKNOWN_VERSION)
+                    .with_message(format!("bytecode version {} unsupported", version)))
+            } else {
+                Ok((
+                    Self {
+                        version,
+                        max_identifier_size,
+                        binary,
+                    },
+                    cursor,
+                ))
             }
-            Ok((Self { version, binary }, cursor))
         }
 
         #[allow(dead_code)]
@@ -457,25 +588,32 @@ pub(crate) mod versioned_data {
             self.version
         }
 
+        #[allow(dead_code)]
+        pub fn max_identifier_size(&self) -> u64 {
+            self.max_identifier_size
+        }
+
         pub fn new_cursor(&self, start: usize, end: usize) -> VersionedCursor<'a> {
             VersionedCursor {
                 version: self.version,
+                max_identifier_size: self.max_identifier_size,
                 cursor: Cursor::new(&self.binary[start..end]),
             }
-        }
-
-        pub fn slice(&self, start: usize, end: usize) -> &'a [u8] {
-            &self.binary[start..end]
         }
     }
 
     impl<'a> VersionedCursor<'a> {
         /// Verifies the correctness of the "static" part of the binary's header.
         /// If valid, returns a cursor to the binary
-        pub fn new(binary: &'a [u8], max_version: u32) -> BinaryLoaderResult<Self> {
-            let (binary, cursor) = VersionedBinary::new(binary, max_version)?;
+        pub fn new(
+            binary: &'a [u8],
+            max_version: u32,
+            max_identifier_size: u64,
+        ) -> BinaryLoaderResult<Self> {
+            let (binary, cursor) = VersionedBinary::new(binary, max_version, max_identifier_size)?;
             Ok(VersionedCursor {
                 version: binary.version,
+                max_identifier_size,
                 cursor,
             })
         }
@@ -483,6 +621,11 @@ pub(crate) mod versioned_data {
         #[allow(dead_code)]
         pub fn version(&self) -> u32 {
             self.version
+        }
+
+        #[allow(dead_code)]
+        pub fn max_identifier_size(&self) -> u64 {
+            self.max_identifier_size
         }
 
         pub fn position(&self) -> u64 {
@@ -493,6 +636,7 @@ pub(crate) mod versioned_data {
         pub fn binary(&self) -> VersionedBinary<'a> {
             VersionedBinary {
                 version: self.version,
+                max_identifier_size: self.max_identifier_size,
                 binary: self.cursor.get_ref(),
             }
         }
@@ -523,6 +667,7 @@ pub(crate) mod versioned_data {
                     *buffer = tmp_buffer;
                     Ok(VersionedBinary {
                         version: self.version,
+                        max_identifier_size: self.max_identifier_size,
                         binary: buffer,
                     })
                 },
@@ -530,8 +675,16 @@ pub(crate) mod versioned_data {
         }
 
         #[cfg(test)]
-        pub fn new_for_test(version: u32, cursor: Cursor<&'a [u8]>) -> Self {
-            Self { version, cursor }
+        pub fn new_for_test(
+            version: u32,
+            max_identifier_size: u64,
+            cursor: Cursor<&'a [u8]>,
+        ) -> Self {
+            Self {
+                version,
+                max_identifier_size,
+                cursor,
+            }
         }
     }
 
@@ -625,6 +778,17 @@ pub fn instruction_key(instruction: &Bytecode) -> u8 {
         CastU16 => Opcodes::CAST_U16,
         CastU32 => Opcodes::CAST_U32,
         CastU256 => Opcodes::CAST_U256,
+        // Since bytecode version 7
+        ImmBorrowVariantField(_) => Opcodes::IMM_BORROW_VARIANT_FIELD,
+        ImmBorrowVariantFieldGeneric(_) => Opcodes::IMM_BORROW_VARIANT_FIELD_GENERIC,
+        MutBorrowVariantField(_) => Opcodes::MUT_BORROW_VARIANT_FIELD,
+        MutBorrowVariantFieldGeneric(_) => Opcodes::MUT_BORROW_VARIANT_FIELD_GENERIC,
+        PackVariant(_) => Opcodes::PACK_VARIANT,
+        PackVariantGeneric(_) => Opcodes::PACK_VARIANT_GENERIC,
+        UnpackVariant(_) => Opcodes::UNPACK_VARIANT,
+        UnpackVariantGeneric(_) => Opcodes::UNPACK_VARIANT_GENERIC,
+        TestVariant(_) => Opcodes::TEST_VARIANT,
+        TestVariantGeneric(_) => Opcodes::TEST_VARIANT_GENERIC,
     };
     opcode as u8
 }

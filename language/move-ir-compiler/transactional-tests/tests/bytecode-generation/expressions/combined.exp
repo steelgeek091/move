@@ -1,11 +1,11 @@
 processed 1 task
 
 task 0 'print-bytecode'. lines 1-11:
-// Move bytecode v6
+// Move bytecode v7
 script {
 
 
-main() {
+main() /* def_idx: 0 */ {
 L0:	loc0: u64
 L1:	loc1: u64
 L2:	loc2: u64

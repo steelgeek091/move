@@ -6,14 +6,17 @@ use crate::compiler::{as_module, compile_units};
 use move_binary_format::errors::VMResult;
 use move_core_types::{
     account_address::AccountAddress,
-    effects::{ChangeSet, Event},
+    effects::ChangeSet,
     identifier::Identifier,
     language_storage::ModuleId,
     u256::U256,
     value::{serialize_values, MoveValue},
     vm_status::StatusCode,
 };
-use move_vm_runtime::{move_vm::MoveVM, session::SerializedReturnValues};
+use move_vm_runtime::{
+    module_traversal::*, move_vm::MoveVM, session::SerializedReturnValues, AsUnsyncModuleStorage,
+    RuntimeEnvironment,
+};
 use move_vm_test_utils::InMemoryStorage;
 use move_vm_types::gas::UnmeteredGasMeter;
 use std::convert::TryInto;
@@ -56,7 +59,7 @@ fn fail_arg_deserialize() {
 fn mutref_output_success() {
     let mod_code = setup_module();
     let result = run(&mod_code, USE_MUTREF_LABEL, MoveValue::U64(1));
-    let (_, _, ret_values) = result.unwrap();
+    let (_, ret_values) = result.unwrap();
     assert_eq!(1, ret_values.mutable_reference_outputs.len());
     let parsed = parse_u64_arg(&ret_values.mutable_reference_outputs.first().unwrap().1);
     assert_eq!(EXPECT_MUTREF_OUT_VALUE, parsed);
@@ -74,7 +77,11 @@ fn setup_module() -> ModuleCode {
             fun {}(_a: & u64) {{ }}
         }}
     "#,
-        TEST_ADDR, TEST_MODULE_ID, USE_MUTREF_LABEL, EXPECT_MUTREF_OUT_VALUE, USE_REF_LABEL
+        TEST_ADDR.to_hex(),
+        TEST_MODULE_ID,
+        USE_MUTREF_LABEL,
+        EXPECT_MUTREF_OUT_VALUE,
+        USE_REF_LABEL
     );
 
     let module_id = ModuleId::new(TEST_ADDR, Identifier::new(TEST_MODULE_ID).unwrap());
@@ -85,13 +92,15 @@ fn run(
     module: &ModuleCode,
     fun_name: &str,
     arg_val0: MoveValue,
-) -> VMResult<(ChangeSet, Vec<Event>, SerializedReturnValues)> {
+) -> VMResult<(ChangeSet, SerializedReturnValues)> {
     let module_id = &module.0;
     let modules = vec![module.clone()];
-    let (vm, storage) = setup_vm(&modules);
+    let (runtime_environment, vm, storage) = setup_vm(&modules);
     let mut session = vm.new_session(&storage);
 
     let fun_name = Identifier::new(fun_name).unwrap();
+    let traversal_storage = TraversalStorage::new();
+    let module_storage = storage.as_unsync_module_storage(runtime_environment);
 
     session
         .execute_function_bypass_visibility(
@@ -100,20 +109,24 @@ fn run(
             vec![],
             serialize_values(&vec![arg_val0]),
             &mut UnmeteredGasMeter,
+            &mut TraversalContext::new(&traversal_storage),
+            &module_storage,
         )
         .and_then(|ret_values| {
-            let (change_set, events) = session.finish()?;
-            Ok((change_set, events, ret_values))
+            let change_set = session.finish(&module_storage)?;
+            Ok((change_set, ret_values))
         })
 }
 
 type ModuleCode = (ModuleId, String);
 
 // TODO - move some utility functions to where test infra lives, see about unifying with similar code
-fn setup_vm(modules: &[ModuleCode]) -> (MoveVM, InMemoryStorage) {
+fn setup_vm(modules: &[ModuleCode]) -> (RuntimeEnvironment, MoveVM, InMemoryStorage) {
     let mut storage = InMemoryStorage::new();
     compile_modules(&mut storage, modules);
-    (MoveVM::new(vec![]).unwrap(), storage)
+    let runtime_environment = RuntimeEnvironment::new(vec![]);
+    let vm = MoveVM::new_with_runtime_environment(&runtime_environment);
+    (runtime_environment, vm, storage)
 }
 
 fn compile_modules(storage: &mut InMemoryStorage, modules: &[ModuleCode]) {
@@ -127,7 +140,7 @@ fn compile_module(storage: &mut InMemoryStorage, mod_id: &ModuleId, code: &str) 
     let module = as_module(units.pop().unwrap());
     let mut blob = vec![];
     module.serialize(&mut blob).unwrap();
-    storage.publish_or_overwrite_module(mod_id.clone(), blob);
+    storage.add_module_bytes(mod_id.address(), mod_id.name(), blob.into());
 }
 
 fn parse_u64_arg(arg: &[u8]) -> u64 {

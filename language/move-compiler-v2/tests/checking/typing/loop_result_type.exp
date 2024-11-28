@@ -1,25 +1,23 @@
-// ---- Model Dump
+// -- Model dump before bytecode pipeline
 module 0x2::X {
     struct R {
         dummy_field: bool,
     }
 } // end 0x2::X
 module 0x2::M {
+    use 0x2::X; // resolved as: 0x2::X
     private fun foo(_x: u64) {
         Tuple()
     }
-    private fun t0() {
+    private fun t0(): X::R {
         loop {
           Tuple()
         }
     }
-    private fun t1() {
+    private fun t1(): u64 {
         loop {
-          {
-            let x: () = 0;
-            x;
-            Tuple()
-          }
+          0;
+          Tuple()
         }
     }
     private fun t2() {
@@ -27,7 +25,7 @@ module 0x2::M {
           Tuple()
         })
     }
-    private fun t3() {
+    private fun t3(): X::R {
         {
           let x: X::R = loop {
             0;
@@ -38,11 +36,11 @@ module 0x2::M {
     }
     private fun t4() {
         {
-          let () = loop {
+          let (): () = loop {
             break
           };
           {
-            let () = loop {
+            let (): () = loop {
               if false {
                 break
               } else {
@@ -54,3 +52,35 @@ module 0x2::M {
         }
     }
 } // end 0x2::M
+
+// -- Sourcified model before bytecode pipeline
+module 0x2::X {
+    struct R {
+    }
+}
+module 0x2::M {
+    use 0x2::X;
+    fun foo(_x: u64) {
+    }
+    fun t0(): X::R {
+        loop ()
+    }
+    fun t1(): u64 {
+        loop {
+            0;
+        }
+    }
+    fun t2() {
+        foo(loop ())
+    }
+    fun t3(): X::R {
+        let x = loop {
+            0;
+        };
+        x
+    }
+    fun t4() {
+        let () = loop break;
+        let () = while (!false) ();
+    }
+}

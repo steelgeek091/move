@@ -1,0 +1,46 @@
+// -- Model dump before bytecode pipeline
+module 0x8675309::M {
+    private fun int128(): u128 {
+        4
+    }
+    private fun int16(): u16 {
+        123
+    }
+    private fun int256(): u256 {
+        4
+    }
+    private fun int32(): u32 {
+        137
+    }
+    private fun int64(): u64 {
+        5
+    }
+    private fun int8(): u8 {
+        1
+    }
+} // end 0x8675309::M
+
+// -- Sourcified model before bytecode pipeline
+module 0x8675309::M {
+    fun int128(): u128 {
+        4u128
+    }
+    fun int16(): u16 {
+        123u16
+    }
+    fun int256(): u256 {
+        4u256
+    }
+    fun int32(): u32 {
+        137u32
+    }
+    fun int64(): u64 {
+        5
+    }
+    fun int8(): u8 {
+        1u8
+    }
+}
+
+
+============ bytecode verification succeeded ========

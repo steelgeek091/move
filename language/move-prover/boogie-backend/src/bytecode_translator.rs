@@ -12,15 +12,17 @@ use crate::{
         boogie_function_bv_name, boogie_function_name, boogie_make_vec_from_strings,
         boogie_modifies_memory_name, boogie_num_literal, boogie_num_type_base,
         boogie_num_type_string_capital, boogie_reflection_type_info, boogie_reflection_type_name,
-        boogie_resource_memory_name, boogie_struct_name, boogie_temp, boogie_temp_from_suffix,
-        boogie_type, boogie_type_param, boogie_type_suffix, boogie_type_suffix_bv,
-        boogie_type_suffix_for_struct, boogie_well_formed_check, boogie_well_formed_expr_bv,
-        TypeIdentToken,
+        boogie_resource_memory_name, boogie_struct_name, boogie_struct_variant_name, boogie_temp,
+        boogie_temp_from_suffix, boogie_type, boogie_type_param, boogie_type_suffix,
+        boogie_type_suffix_bv, boogie_type_suffix_for_struct,
+        boogie_type_suffix_for_struct_variant, boogie_well_formed_check,
+        boogie_well_formed_expr_bv, TypeIdentToken,
     },
     options::BoogieOptions,
     spec_translator::SpecTranslator,
 };
 use codespan::LineIndex;
+use codespan_reporting::diagnostic::Severity;
 use itertools::Itertools;
 #[allow(unused_imports)]
 use log::{debug, info, log, warn, Level};
@@ -29,25 +31,28 @@ use move_model::{
     ast::{Attribute, TempIndex, TraceKind},
     code_writer::CodeWriter,
     emit, emitln,
-    model::{FieldId, GlobalEnv, Loc, NodeId, QualifiedInstId, StructEnv, StructId},
+    model::{FieldEnv, FieldId, GlobalEnv, Loc, NodeId, QualifiedInstId, StructEnv, StructId},
     pragmas::{
         ADDITION_OVERFLOW_UNCHECKED_PRAGMA, SEED_PRAGMA, TIMEOUT_PRAGMA,
         VERIFY_DURATION_ESTIMATE_PRAGMA,
     },
+    symbol::Symbol,
     ty::{PrimitiveType, Type, TypeDisplayContext, BOOL_TYPE},
     well_known::{TYPE_INFO_MOVE, TYPE_NAME_GET_MOVE, TYPE_NAME_MOVE},
 };
-use move_stackless_bytecode::{
-    function_target::FunctionTarget,
-    function_target_pipeline::{FunctionTargetsHolder, FunctionVariant, VerificationFlavor},
+use move_prover_bytecode_pipeline::{
     mono_analysis,
     number_operation::{
         FuncOperationMap, GlobalNumberOperationState, NumOperation,
         NumOperation::{Bitwise, Bottom},
     },
     options::ProverOptions,
+};
+use move_stackless_bytecode::{
+    function_target::FunctionTarget,
+    function_target_pipeline::{FunctionTargetsHolder, FunctionVariant, VerificationFlavor},
     stackless_bytecode::{
-        AbortAction, BorrowEdge, BorrowNode, Bytecode, Constant, HavocKind, IndexEdgeKind,
+        AbortAction, AttrId, BorrowEdge, BorrowNode, Bytecode, Constant, HavocKind, IndexEdgeKind,
         Operation, PropKind,
     },
 };
@@ -94,7 +99,11 @@ impl<'env> BoogieTranslator<'env> {
         let estimate_timeout_opt = fun_target
             .func_env
             .get_num_pragma(VERIFY_DURATION_ESTIMATE_PRAGMA);
-        let default_timeout = estimate_timeout_opt.unwrap_or(options.vc_timeout);
+        let default_timeout = if options.global_timeout_overwrite {
+            estimate_timeout_opt.unwrap_or(options.vc_timeout)
+        } else {
+            options.vc_timeout
+        };
         fun_target
             .func_env
             .get_num_pragma(TIMEOUT_PRAGMA)
@@ -143,14 +152,14 @@ impl<'env> BoogieTranslator<'env> {
                 emitln!(
                     writer,
                     "axiom (forall t: $TypeParamInfo :: {{$TypeName(t)}} \
-                            is#$TypeParam{}(t) ==> $IsEqual'vec'u8''($TypeName(t), {}));",
+                            t is $TypeParam{} ==> $IsEqual'vec'u8''($TypeName(t), {}));",
                     name,
                     TypeIdentToken::convert_to_bytes(TypeIdentToken::make(&name.to_lowercase()))
                 );
                 emitln!(
                     writer,
                     "axiom (forall t: $TypeParamInfo :: {{$TypeName(t)}} \
-                            $IsEqual'vec'u8''($TypeName(t), {}) ==> is#$TypeParam{}(t));",
+                            $IsEqual'vec'u8''($TypeName(t), {}) ==> t is $TypeParam{});",
                     TypeIdentToken::convert_to_bytes(TypeIdentToken::make(&name.to_lowercase())),
                     name,
                 );
@@ -158,21 +167,19 @@ impl<'env> BoogieTranslator<'env> {
 
             // type name <-> type info: vector
             let mut tokens = TypeIdentToken::make("vector<");
-            tokens.push(TypeIdentToken::Variable(
-                "$TypeName(e#$TypeParamVector(t))".to_string(),
-            ));
+            tokens.push(TypeIdentToken::Variable("$TypeName(t->e)".to_string()));
             tokens.extend(TypeIdentToken::make(">"));
             emitln!(
                 writer,
                 "axiom (forall t: $TypeParamInfo :: {{$TypeName(t)}} \
-                            is#$TypeParamVector(t) ==> $IsEqual'vec'u8''($TypeName(t), {}));",
+                            t is $TypeParamVector ==> $IsEqual'vec'u8''($TypeName(t), {}));",
                 TypeIdentToken::convert_to_bytes(tokens)
             );
             // TODO(mengxu): this will parse it to an uninterpreted vector element type
             emitln!(
                 writer,
                 "axiom (forall t: $TypeParamInfo :: {{$TypeName(t)}} \
-                            ($IsPrefix'vec'u8''($TypeName(t), {}) && $IsSuffix'vec'u8''($TypeName(t), {})) ==> is#$TypeParamVector(t));",
+                            ($IsPrefix'vec'u8''($TypeName(t), {}) && $IsSuffix'vec'u8''($TypeName(t), {})) ==> t is $TypeParamVector);",
                 TypeIdentToken::convert_to_bytes(TypeIdentToken::make("vector<")),
                 TypeIdentToken::convert_to_bytes(TypeIdentToken::make(">")),
             );
@@ -180,28 +187,22 @@ impl<'env> BoogieTranslator<'env> {
             // type name <-> type info: struct
             let mut tokens = TypeIdentToken::make("0x");
             // TODO(mengxu): this is not a correct radix16 encoding of an integer
-            tokens.push(TypeIdentToken::Variable(
-                "MakeVec1(a#$TypeParamStruct(t))".to_string(),
-            ));
+            tokens.push(TypeIdentToken::Variable("MakeVec1(t->a)".to_string()));
             tokens.extend(TypeIdentToken::make("::"));
-            tokens.push(TypeIdentToken::Variable(
-                "m#$TypeParamStruct(t)".to_string(),
-            ));
+            tokens.push(TypeIdentToken::Variable("t->m".to_string()));
             tokens.extend(TypeIdentToken::make("::"));
-            tokens.push(TypeIdentToken::Variable(
-                "s#$TypeParamStruct(t)".to_string(),
-            ));
+            tokens.push(TypeIdentToken::Variable("t->s".to_string()));
             emitln!(
                 writer,
                 "axiom (forall t: $TypeParamInfo :: {{$TypeName(t)}} \
-                            is#$TypeParamStruct(t) ==> $IsEqual'vec'u8''($TypeName(t), {}));",
+                            t is $TypeParamStruct ==> $IsEqual'vec'u8''($TypeName(t), {}));",
                 TypeIdentToken::convert_to_bytes(tokens)
             );
             // TODO(mengxu): this will parse it to an uninterpreted struct
             emitln!(
                 writer,
                 "axiom (forall t: $TypeParamInfo :: {{$TypeName(t)}} \
-                            $IsPrefix'vec'u8''($TypeName(t), {}) ==> is#$TypeParamVector(t));",
+                            $IsPrefix'vec'u8''($TypeName(t), {}) ==> t is $TypeParamVector);",
                 TypeIdentToken::convert_to_bytes(TypeIdentToken::make("0x")),
             );
         }
@@ -270,7 +271,8 @@ impl<'env> BoogieTranslator<'env> {
             }
 
             for ref fun_env in module_env.get_functions() {
-                if fun_env.is_native_or_intrinsic() || fun_env.is_inline() {
+                if fun_env.is_native_or_intrinsic() || fun_env.is_inline() || fun_env.is_test_only()
+                {
                     continue;
                 }
                 for (variant, ref fun_target) in self.targets.get_targets(fun_env) {
@@ -349,8 +351,215 @@ impl<'env> StructTranslator<'env> {
         ty.instantiate(self.type_inst)
     }
 
+    /// Return equality check for the field `f`
+    pub fn boogie_field_is_equal(&self, f: &FieldEnv<'_>, sep: &str) -> String {
+        let field_sel = boogie_field_sel(f);
+        let bv_flag = self.field_bv_flag(f);
+        let field_suffix =
+            boogie_type_suffix_bv(self.parent.env, &self.inst(&f.get_type()), bv_flag);
+        format!(
+            "{}$IsEqual'{}'(s1->{}, s2->{})",
+            sep, field_suffix, field_sel, field_sel,
+        )
+    }
+
+    /// Return validity check of the field `f`
+    pub fn boogie_field_is_valid(&self, field: &FieldEnv<'_>, sep: &str) -> String {
+        let sel = format!("s->{}", boogie_field_sel(field));
+        let ty = &field.get_type().instantiate(self.type_inst);
+        let bv_flag = self.field_bv_flag(field);
+        format!(
+            "{}{}",
+            sep,
+            boogie_well_formed_expr_bv(self.parent.env, &sel, ty, bv_flag)
+        )
+    }
+
+    /// Return argument of constructor for the field `f`
+    pub fn boogie_field_arg_for_fun_sig(&self, f: &FieldEnv<'_>) -> String {
+        format!(
+            "{}: {}",
+            boogie_field_sel(f),
+            self.boogie_type_for_struct_field(f, self.parent.env, &self.inst(&f.get_type()))
+        )
+    }
+
+    /// Emit is_valid and update for fields of `variant`
+    pub fn emit_struct_variant_is_valid_and_update(
+        &self,
+        struct_env: &StructEnv,
+        variant: Symbol,
+        field_variant_map: &mut BTreeMap<(String, String), Vec<String>>,
+    ) {
+        let writer = self.parent.writer;
+        let env = self.parent.env;
+        let suffix_variant =
+            boogie_type_suffix_for_struct_variant(struct_env, self.type_inst, &variant);
+        let struct_variant_name = boogie_struct_variant_name(struct_env, self.type_inst, variant);
+        let struct_name = boogie_struct_name(struct_env, self.type_inst);
+        let fields = struct_env.get_fields_of_variant(variant).collect_vec();
+        // Emit $Update function for each field in `variant`.
+        for (pos, field_env) in struct_env.get_fields_of_variant(variant).enumerate() {
+            let field_name = field_env.get_name().display(env.symbol_pool()).to_string();
+            let field_type_name = self.boogie_type_for_struct_field(
+                &field_env,
+                env,
+                &self.inst(&field_env.get_type()),
+            );
+            if field_variant_map.contains_key(&(field_name.clone(), field_type_name.clone())) {
+                let variants_vec = field_variant_map
+                    .get_mut(&(field_name.clone(), field_type_name.clone()))
+                    .unwrap();
+                variants_vec.push(struct_variant_name.clone());
+            } else {
+                let variants_vec = vec![struct_variant_name.clone()];
+                field_variant_map.insert(
+                    (field_name.to_string(), field_type_name.to_string()),
+                    variants_vec,
+                );
+            }
+            self.emit_function(
+                &format!(
+                    "$Update'{}'_{}(s: {}, x: {}): {}",
+                    suffix_variant, field_name, struct_name, field_type_name, struct_name
+                ),
+                || {
+                    let args = fields
+                        .iter()
+                        .enumerate()
+                        .map(|(p, f)| {
+                            if p == pos {
+                                "x".to_string()
+                            } else {
+                                format!("s->{}", boogie_field_sel(f))
+                            }
+                        })
+                        .join(", ");
+                    emitln!(writer, "{}({})", struct_variant_name, args);
+                },
+            );
+        }
+
+        // Emit $IsValid function for `variant`.
+        self.emit_function_with_attr(
+            "", // not inlined!
+            &format!("$IsValid'{}'(s: {}): bool", suffix_variant, struct_name),
+            || {
+                if struct_env.is_intrinsic()
+                    || struct_env
+                        .get_fields_of_variant(variant)
+                        .collect_vec()
+                        .is_empty()
+                {
+                    emitln!(writer, "true")
+                } else {
+                    let mut sep = "";
+                    for field in &fields {
+                        emitln!(writer, "{}", self.boogie_field_is_valid(field, sep));
+                        sep = "  && ";
+                    }
+                }
+            },
+        );
+    }
+
+    // Emit $IsValid function for struct.
+    fn emit_is_valid_struct(&self, struct_env: &StructEnv, struct_name: &str, emit_fn: impl Fn()) {
+        let writer = self.parent.writer;
+        self.emit_function_with_attr(
+            "", // not inlined!
+            &format!("$IsValid'{}'(s: {}): bool", struct_name, struct_name),
+            || {
+                if struct_env.is_intrinsic() || struct_env.get_field_count() == 0 {
+                    emitln!(writer, "true")
+                } else {
+                    emit_fn()
+                }
+            },
+        );
+    }
+
+    /// Emit $Update and $IsValid for enum
+    fn emit_update_is_valid_for_enum(&self, struct_env: &StructEnv, struct_name: &str) {
+        let writer = self.parent.writer;
+        let mut field_variant_map: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
+        for variant in struct_env.get_variants() {
+            self.emit_struct_variant_is_valid_and_update(
+                struct_env,
+                variant,
+                &mut field_variant_map,
+            );
+        }
+        for ((field, field_type), variant_name) in field_variant_map {
+            self.emit_function(
+                &format!(
+                    "$Update'{}'_{}(s: {}, x: {}): {}",
+                    struct_name, field, struct_name, field_type, struct_name
+                ),
+                || {
+                    let mut else_symbol = "";
+                    for struct_variant_name in &variant_name {
+                        let match_condition = format!("s is {}", struct_variant_name);
+                        let update_str =
+                            format!("$Update'{}'_{}(s, x)", struct_variant_name, field);
+                        emitln!(writer, "{} if {} then", else_symbol, match_condition);
+                        emitln!(writer, "{}", update_str);
+                        if else_symbol.is_empty() {
+                            else_symbol = "else";
+                        }
+                    }
+                    emitln!(writer, "else s");
+                },
+            );
+        }
+
+        self.emit_is_valid_struct(struct_env, struct_name, || {
+            let mut else_symbol = "";
+            for variant in struct_env.get_variants() {
+                let struct_variant_name =
+                    boogie_struct_variant_name(struct_env, self.type_inst, variant);
+                let match_condition = format!("s is {}", struct_variant_name);
+                let str = format!("$IsValid'{}'(s)", struct_variant_name,);
+                emitln!(writer, "{} if {} then", else_symbol, match_condition);
+                emitln!(writer, "{}", str);
+                if else_symbol.is_empty() {
+                    else_symbol = "else";
+                }
+            }
+            emitln!(writer, "else false");
+        });
+    }
+
+    /// Emit the function body of $IsEqual for enum
+    fn emit_is_equal_fn_body_for_enum(&self, struct_env: &StructEnv) {
+        let writer = self.parent.writer;
+        let mut sep = "";
+        let mut else_symbol = "";
+        for variant in struct_env.get_variants() {
+            let mut equal_statement = "".to_string();
+            for f in struct_env.get_fields_of_variant(variant) {
+                let field_equal_str = self.boogie_field_is_equal(&f, sep);
+                equal_statement = format!("{}{}", equal_statement, field_equal_str);
+                sep = "&& ";
+            }
+            let struct_variant_name =
+                boogie_struct_variant_name(struct_env, self.type_inst, variant);
+            let match_condition = format!(
+                "s1 is {} && s2 is {}",
+                struct_variant_name, struct_variant_name
+            );
+            emitln!(writer, "{} if {} then", else_symbol, match_condition);
+            emitln!(writer, "{}", equal_statement);
+            if else_symbol.is_empty() {
+                else_symbol = "else";
+            }
+            sep = "";
+        }
+        emitln!(writer, "else false");
+    }
+
     /// Return whether a field involves bitwise operations
-    pub fn field_bv_flag(&self, field_id: &FieldId) -> bool {
+    pub fn field_bv_flag(&self, field_env: &FieldEnv) -> bool {
         let global_state = &self
             .parent
             .env
@@ -359,18 +568,33 @@ impl<'env> StructTranslator<'env> {
         let operation_map = &global_state.struct_operation_map;
         let mid = self.struct_env.module_env.get_id();
         let sid = self.struct_env.get_id();
-        let field_oper = operation_map.get(&(mid, sid)).unwrap().get(field_id);
-        matches!(field_oper, Some(&Bitwise))
+        let field_id = if field_env.struct_env.has_variants() {
+            let variant = field_env
+                .get_variant()
+                .expect("each field of enum must have a corresponding variant");
+            let pool = self.struct_env.symbol_pool();
+            FieldId::new(pool.make(&FieldId::make_variant_field_id_str(
+                pool.string(variant).as_str(),
+                pool.string(field_env.get_name()).as_str(),
+            )))
+        } else {
+            field_env.get_id()
+        };
+        if let Some(struct_info) = operation_map.get(&(mid, sid)) {
+            matches!(struct_info.get(&field_id), Some(&Bitwise))
+        } else {
+            false
+        }
     }
 
     /// Return boogie type for a struct
     pub fn boogie_type_for_struct_field(
         &self,
-        field_id: &FieldId,
+        field: &FieldEnv,
         env: &GlobalEnv,
         ty: &Type,
     ) -> String {
-        let bv_flag = self.field_bv_flag(field_id);
+        let bv_flag = self.field_bv_flag(field);
         if bv_flag {
             boogie_bv_type(env, ty)
         } else {
@@ -387,9 +611,15 @@ impl<'env> StructTranslator<'env> {
         let qid = struct_env
             .get_qualified_id()
             .instantiate(self.type_inst.to_owned());
+        let struct_or_enum = if struct_env.has_variants() {
+            "enum"
+        } else {
+            "struct"
+        };
         emitln!(
             writer,
-            "// struct {} {}",
+            "// {} {} {}",
+            struct_or_enum,
             env.display(&qid),
             struct_env.get_loc().display(env)
         );
@@ -399,116 +629,99 @@ impl<'env> StructTranslator<'env> {
 
         // Emit data type
         let struct_name = boogie_struct_name(struct_env, self.type_inst);
-        emitln!(writer, "type {{:datatype}} {};", struct_name);
+        emitln!(writer, "datatype {} {{", struct_name);
 
         // Emit constructor
-        let fields = struct_env
-            .get_fields()
-            .map(|field| {
-                format!(
-                    "${}: {}",
-                    field.get_name().display(env.symbol_pool()),
-                    self.boogie_type_for_struct_field(
-                        &field.get_id(),
-                        env,
-                        &self.inst(&field.get_type())
-                    )
-                )
-            })
-            .join(", ");
-        emitln!(
-            writer,
-            "function {{:constructor}} {}({}): {};",
-            struct_name,
-            fields,
-            struct_name
-        );
-
-        let suffix = boogie_type_suffix_for_struct(struct_env, self.type_inst, false);
-
-        // Emit $UpdateField functions.
-        let fields = struct_env.get_fields().collect_vec();
-        for (pos, field_env) in fields.iter().enumerate() {
-            let field_name = field_env.get_name().display(env.symbol_pool()).to_string();
-            self.emit_function(
-                &format!(
-                    "$Update'{}'_{}(s: {}, x: {}): {}",
-                    suffix,
-                    field_name,
-                    struct_name,
-                    self.boogie_type_for_struct_field(
-                        &field_env.get_id(),
-                        env,
-                        &self.inst(&field_env.get_type())
-                    ),
-                    struct_name
-                ),
-                || {
-                    let args = fields
-                        .iter()
-                        .enumerate()
-                        .map(|(p, f)| {
-                            if p == pos {
-                                "x".to_string()
-                            } else {
-                                format!("{}(s)", boogie_field_sel(f, self.type_inst))
-                            }
-                        })
+        if struct_env.has_variants() {
+            let constructor = struct_env
+                .get_variants()
+                .map(|variant| {
+                    let struct_variant_name =
+                        boogie_struct_variant_name(struct_env, self.type_inst, variant);
+                    let variant_fields = struct_env
+                        .get_fields_of_variant(variant)
+                        .map(|f| self.boogie_field_arg_for_fun_sig(&f))
                         .join(", ");
-                    emitln!(writer, "{}({})", struct_name, args);
-                },
-            );
+                    format!("    {}({})", struct_variant_name, variant_fields,)
+                })
+                .join(", \n");
+            emitln!(writer, "{}", constructor);
+            emitln!(writer, "}");
+        } else {
+            let fields = struct_env
+                .get_fields()
+                .map(|f| self.boogie_field_arg_for_fun_sig(&f))
+                .join(", ");
+            emitln!(writer, "    {}({})", struct_name, fields,);
+            emitln!(writer, "}");
         }
 
-        // Emit $IsValid function.
-        self.emit_function_with_attr(
-            "", // not inlined!
-            &format!("$IsValid'{}'(s: {}): bool", suffix, struct_name),
-            || {
-                if struct_env.is_intrinsic() || struct_env.get_field_count() == 0 {
-                    emitln!(writer, "true")
-                } else {
-                    let mut sep = "";
-                    for field in struct_env.get_fields() {
-                        let sel = format!("{}({})", boogie_field_sel(&field, self.type_inst), "s");
-                        let ty = &field.get_type().instantiate(self.type_inst);
-                        let bv_flag = self.field_bv_flag(&field.get_id());
-                        emitln!(
-                            writer,
-                            "{}{}",
-                            sep,
-                            boogie_well_formed_expr_bv(env, &sel, ty, bv_flag)
-                        );
-                        sep = "  && ";
-                    }
+        // Emit $UpdateField functions.
+        if struct_env.has_variants() {
+            self.emit_update_is_valid_for_enum(struct_env, &struct_name);
+        } else {
+            let suffix = boogie_type_suffix_for_struct(struct_env, self.type_inst, false);
+            let fields = struct_env.get_fields().collect_vec();
+            for (pos, field_env) in fields.iter().enumerate() {
+                let field_name = field_env.get_name().display(env.symbol_pool()).to_string();
+                self.emit_function(
+                    &format!(
+                        "$Update'{}'_{}(s: {}, x: {}): {}",
+                        suffix,
+                        field_name,
+                        struct_name,
+                        self.boogie_type_for_struct_field(
+                            field_env,
+                            env,
+                            &self.inst(&field_env.get_type())
+                        ),
+                        struct_name
+                    ),
+                    || {
+                        let args = fields
+                            .iter()
+                            .enumerate()
+                            .map(|(p, f)| {
+                                if p == pos {
+                                    "x".to_string()
+                                } else {
+                                    format!("s->{}", boogie_field_sel(f))
+                                }
+                            })
+                            .join(", ");
+                        emitln!(writer, "{}({})", struct_name, args);
+                    },
+                );
+            }
+
+            // Emit $IsValid function.
+            self.emit_is_valid_struct(struct_env, &struct_name, || {
+                let mut sep = "";
+                for field in struct_env.get_fields() {
+                    emitln!(writer, "{}", self.boogie_field_is_valid(&field, sep));
+                    sep = "  && ";
                 }
-            },
-        );
+            });
+        }
 
         // Emit equality
         self.emit_function(
             &format!(
                 "$IsEqual'{}'(s1: {}, s2: {}): bool",
-                suffix, struct_name, struct_name
+                boogie_type_suffix_for_struct(struct_env, self.type_inst, false),
+                struct_name,
+                struct_name
             ),
             || {
                 if struct_has_native_equality(struct_env, self.type_inst, self.parent.options) {
                     emitln!(writer, "s1 == s2")
+                } else if struct_env.has_variants() {
+                    self.emit_is_equal_fn_body_for_enum(struct_env);
                 } else {
                     let mut sep = "";
-                    for field in &fields {
-                        let sel_fun = boogie_field_sel(field, self.type_inst);
-                        let bv_flag = self.field_bv_flag(&field.get_id());
-                        let field_suffix =
-                            boogie_type_suffix_bv(env, &self.inst(&field.get_type()), bv_flag);
-                        emit!(
-                            writer,
-                            "{}$IsEqual'{}'({}(s1), {}(s2))",
-                            sep,
-                            field_suffix,
-                            sel_fun,
-                            sel_fun,
-                        );
+                    for field in &struct_env.get_fields().collect_vec() {
+                        let field_equal_str = self.boogie_field_is_equal(field, sep);
+                        emit!(writer, "{}", field_equal_str,);
                         sep = "\n&& ";
                     }
                 }
@@ -924,7 +1137,7 @@ impl<'env> FunctionTranslator<'env> {
         for i in 0..fun_target.get_parameter_count() {
             let ty = fun_target.get_local_type(i);
             if ty.is_reference() {
-                emitln!(writer, "assume l#$Mutation($t{}) == $Param({});", i, i);
+                emitln!(writer, "assume $t{}->l == $Param({});", i, i);
             }
         }
     }
@@ -1124,7 +1337,28 @@ impl<'env> FunctionTranslator<'env> {
             Call(_, dests, oper, srcs, aa) => {
                 use Operation::*;
                 match oper {
-                    FreezeRef => unreachable!(),
+                    TestVariant(mid, sid, variant, inst) => {
+                        let inst = &self.inst_slice(inst);
+                        let src_type = self.get_local_type(srcs[0]);
+                        let src_str = if src_type.is_reference() {
+                            format!("$Dereference({})", str_local(srcs[0]))
+                        } else {
+                            str_local(srcs[0])
+                        };
+                        let dst_str = str_local(dests[0]);
+                        let struct_env = env.get_module(*mid).into_struct(*sid);
+                        let struct_variant_name =
+                            boogie_struct_variant_name(&struct_env, inst, *variant);
+                        emitln!(
+                            writer,
+                            "if ({} is {}) {{ {} := true; }}",
+                            src_str,
+                            struct_variant_name,
+                            dst_str
+                        );
+                        emitln!(writer, "else {{ {} := false; }}", dst_str);
+                    },
+                    FreezeRef(_) => unreachable!(),
                     UnpackRef | UnpackRefDeep | PackRef | PackRefDeep => {
                         // No effect
                     },
@@ -1141,7 +1375,7 @@ impl<'env> FunctionTranslator<'env> {
                                 .flatten()
                                 .into_iter()
                                 .filter_map(|e| match e {
-                                    BorrowEdge::Field(_, offset) => Some(format!("{}", offset)),
+                                    BorrowEdge::Field(_, _, offset) => Some(format!("{}", offset)),
                                     BorrowEdge::Index(_) => Some("-1".to_owned()),
                                     BorrowEdge::Direct => None,
                                     _ => unreachable!(),
@@ -1465,47 +1699,127 @@ impl<'env> FunctionTranslator<'env> {
                             args
                         );
                     },
-                    Unpack(mid, sid, inst) => {
+                    PackVariant(mid, sid, variant, inst) => {
                         let inst = &self.inst_slice(inst);
                         let struct_env = env.get_module(*mid).into_struct(*sid);
+                        let args = srcs.iter().cloned().map(str_local).join(", ");
+                        let dest_str = str_local(dests[0]);
+                        emitln!(
+                            writer,
+                            "{} := {}({});",
+                            dest_str,
+                            boogie_struct_variant_name(&struct_env, inst, *variant),
+                            args
+                        );
+                    },
+                    Unpack(mid, sid, _) => {
+                        let struct_env = env.get_module(*mid).into_struct(*sid);
                         for (i, ref field_env) in struct_env.get_fields().enumerate() {
-                            let field_sel = format!(
-                                "{}({})",
-                                boogie_field_sel(field_env, inst),
-                                str_local(srcs[0])
-                            );
+                            let field_sel =
+                                format!("{}->{}", str_local(srcs[0]), boogie_field_sel(field_env),);
                             emitln!(writer, "{} := {};", str_local(dests[i]), field_sel);
                         }
                     },
-                    BorrowField(mid, sid, inst, field_offset) => {
+                    UnpackVariant(mid, sid, variant, inst) => {
                         let inst = &self.inst_slice(inst);
+                        let src_str = str_local(srcs[0]);
+                        let struct_env = env.get_module(*mid).into_struct(*sid);
+                        let struct_variant_name =
+                            boogie_struct_variant_name(&struct_env, inst, *variant);
+                        emitln!(writer, "if ({} is {}) {{", src_str, struct_variant_name);
+                        for (i, ref field_env) in
+                            struct_env.get_fields_of_variant(*variant).enumerate()
+                        {
+                            let field_sel =
+                                format!("{}->{}", str_local(srcs[0]), boogie_field_sel(field_env),);
+                            emitln!(writer, "{} := {};", str_local(dests[i]), field_sel);
+                        }
+                        emitln!(writer, "} else { call $ExecFailureAbort(); }");
+                    },
+                    BorrowField(mid, sid, _, field_offset) => {
                         let src_str = str_local(srcs[0]);
                         let dest_str = str_local(dests[0]);
                         let struct_env = env.get_module(*mid).into_struct(*sid);
+                        self.check_intrinsic_select(attr_id, &struct_env);
                         let field_env = &struct_env.get_field_by_offset(*field_offset);
-                        let sel_fun = boogie_field_sel(field_env, inst);
+                        let field_sel = boogie_field_sel(field_env);
                         emitln!(
                             writer,
-                            "{} := $ChildMutation({}, {}, {}($Dereference({})));",
+                            "{} := $ChildMutation({}, {}, $Dereference({})->{});",
                             dest_str,
                             src_str,
                             field_offset,
-                            sel_fun,
-                            src_str
+                            src_str,
+                            field_sel,
                         );
                     },
-                    GetField(mid, sid, inst, field_offset) => {
+                    BorrowVariantField(mid, sid, variants, inst, field_offset) => {
+                        let inst = &self.inst_slice(inst);
+                        let src_str = str_local(srcs[0]);
+                        let deref_src_str = format!("$Dereference({})", src_str);
+                        let dest_str = str_local(dests[0]);
+                        let struct_env = env.get_module(*mid).into_struct(*sid);
+                        self.check_intrinsic_select(attr_id, &struct_env);
+                        emit!(writer, "if (");
+                        let mut select_condition = vec![];
+                        for variant in variants {
+                            let struct_variant_name =
+                                boogie_struct_variant_name(&struct_env, inst, *variant);
+                            let call = format!("{} is {}", deref_src_str, struct_variant_name);
+                            select_condition.push(call.clone());
+                        }
+                        let field_env = struct_env
+                            .get_field_by_offset_optional_variant(Some(variants[0]), *field_offset);
+                        let field_sel = boogie_field_sel(&field_env);
+                        emitln!(writer, "{}) {{", select_condition.join(" || "));
+                        emitln!(
+                            writer,
+                            "{} := $ChildMutation({}, {}, {}->{});",
+                            dest_str,
+                            src_str,
+                            field_offset,
+                            deref_src_str,
+                            field_sel,
+                        );
+                        emitln!(writer, "} else { call $ExecFailureAbort(); }");
+                    },
+                    GetField(mid, sid, _, field_offset) => {
+                        let src = srcs[0];
+                        let mut src_str = str_local(src);
+                        let dest_str = str_local(dests[0]);
+                        let struct_env = env.get_module(*mid).into_struct(*sid);
+                        self.check_intrinsic_select(attr_id, &struct_env);
+                        let field_env = &struct_env.get_field_by_offset(*field_offset);
+                        let field_sel = boogie_field_sel(field_env);
+                        if self.get_local_type(src).is_reference() {
+                            src_str = format!("$Dereference({})", src_str);
+                        };
+                        emitln!(writer, "{} := {}->{};", dest_str, src_str, field_sel);
+                    },
+                    GetVariantField(mid, sid, variants, inst, field_offset) => {
                         let inst = &self.inst_slice(inst);
                         let src = srcs[0];
                         let mut src_str = str_local(src);
                         let dest_str = str_local(dests[0]);
                         let struct_env = env.get_module(*mid).into_struct(*sid);
-                        let field_env = &struct_env.get_field_by_offset(*field_offset);
-                        let sel_fun = boogie_field_sel(field_env, inst);
-                        if self.get_local_type(src).is_reference() {
-                            src_str = format!("$Dereference({})", src_str);
-                        };
-                        emitln!(writer, "{} := {}({});", dest_str, sel_fun, src_str);
+                        self.check_intrinsic_select(attr_id, &struct_env);
+                        emit!(writer, "if (");
+                        let mut select_condition = vec![];
+                        for variant in variants {
+                            let struct_variant_name =
+                                boogie_struct_variant_name(&struct_env, inst, *variant);
+                            if self.get_local_type(src).is_reference() {
+                                src_str = format!("$Dereference({})", src_str);
+                            };
+                            let call = format!("{} is {}", src_str, struct_variant_name);
+                            select_condition.push(call.clone());
+                        }
+                        let field_env = struct_env
+                            .get_field_by_offset_optional_variant(Some(variants[0]), *field_offset);
+                        let field_sel = boogie_field_sel(&field_env);
+                        emitln!(writer, "{}) {{", select_condition.join(" || "));
+                        emitln!(writer, "{} := {}->{};", dest_str, src_str, field_sel);
+                        emitln!(writer, "} else { call $ExecFailureAbort(); }");
                     },
                     Exists(mid, sid, inst) => {
                         let inst = self.inst_slice(inst);
@@ -1582,7 +1896,7 @@ impl<'env> FunctionTranslator<'env> {
                         let signer_str = str_local(srcs[1]);
                         emitln!(
                             writer,
-                            "if ($ResourceExists({}, $addr#$signer({}))) {{",
+                            "if ($ResourceExists({}, {}->$addr)) {{",
                             memory,
                             signer_str
                         );
@@ -1591,7 +1905,7 @@ impl<'env> FunctionTranslator<'env> {
                         writer.with_indent(|| {
                             emitln!(
                                 writer,
-                                "{} := $ResourceUpdate({}, $addr#$signer({}), {});",
+                                "{} := $ResourceUpdate({}, {}->$addr, {});",
                                 memory,
                                 memory,
                                 signer_str,
@@ -2187,13 +2501,9 @@ impl<'env> FunctionTranslator<'env> {
                         make_bitwise(bv_oper_str, op1, op2, dest);
                     },
                     Uninit => {
-                        emitln!(
-                            writer,
-                            "assume l#$Mutation($t{}) == $Uninitialized();",
-                            srcs[0]
-                        );
+                        emitln!(writer, "assume $t{}->l == $Uninitialized();", srcs[0]);
                     },
-                    Destroy => {},
+                    Drop | Release => {},
                     TraceLocal(idx) => {
                         let num_oper = global_state
                             .get_temp_index_oper(mid, fid, srcs[0], baseline_flag)
@@ -2238,14 +2548,26 @@ impl<'env> FunctionTranslator<'env> {
                         let node_id = env.new_node(env.unknown_loc(), mem.to_type());
                         self.track_global_mem(mem, node_id);
                     },
+                    Vector => unimplemented!("vector"),
                 }
                 if let Some(AbortAction(target, code)) = aa {
                     emitln!(writer, "if ($abort_flag) {");
                     writer.indent();
                     *last_tracked_loc = None;
                     self.track_loc(last_tracked_loc, &loc);
+                    let num_oper_code = global_state
+                        .get_temp_index_oper(mid, fid, *code, baseline_flag)
+                        .unwrap();
+                    let bv2int_str = if *num_oper_code == Bitwise {
+                        format!(
+                            "$int2bv.{}($abort_code)",
+                            boogie_num_type_base(&self.get_local_type(*code))
+                        )
+                    } else {
+                        "$abort_code".to_string()
+                    };
                     let code_str = str_local(*code);
-                    emitln!(writer, "{} := $abort_code;", code_str);
+                    emitln!(writer, "{} := {};", code_str, bv2int_str);
                     self.track_abort(&code_str);
                     emitln!(writer, "goto L{};", target.as_usize());
                     writer.unindent();
@@ -2253,11 +2575,28 @@ impl<'env> FunctionTranslator<'env> {
                 }
             },
             Abort(_, src) => {
-                emitln!(writer, "$abort_code := {};", str_local(*src));
+                let num_oper_code = global_state
+                    .get_temp_index_oper(mid, fid, *src, baseline_flag)
+                    .unwrap();
+                let int2bv_str = if *num_oper_code == Bitwise {
+                    format!(
+                        "$bv2int.{}({})",
+                        boogie_num_type_base(&self.get_local_type(*src)),
+                        str_local(*src)
+                    )
+                } else {
+                    str_local(*src)
+                };
+                emitln!(writer, "$abort_code := {};", int2bv_str);
                 emitln!(writer, "$abort_flag := true;");
                 emitln!(writer, "return;")
             },
             Nop(..) => {},
+            SpecBlock(..) => {
+                // spec blocks should only appear in bytecode during compilation
+                // to Move bytecode, so bail out.
+                panic!("unexpected spec block")
+            },
         }
         emitln!(writer);
     }
@@ -2294,15 +2633,9 @@ impl<'env> FunctionTranslator<'env> {
                 let src_value = format!("$Dereference({})", src_str);
                 let get_path_index = |offset: usize| {
                     if offset == 0 {
-                        format!(
-                            "ReadVec(p#$Mutation({}), LenVec(p#$Mutation($t{})))",
-                            src_str, idx
-                        )
+                        format!("ReadVec({}->p, LenVec($t{}->p))", src_str, idx)
                     } else {
-                        format!(
-                            "ReadVec(p#$Mutation({}), LenVec(p#$Mutation($t{})) + {})",
-                            src_str, idx, offset
-                        )
+                        format!("ReadVec({}->p, LenVec($t{}->p) + {})", src_str, idx, offset)
                     }
                 };
                 let update = if let BorrowEdge::Hyper(edges) = edge {
@@ -2333,6 +2666,18 @@ impl<'env> FunctionTranslator<'env> {
         }
     }
 
+    fn check_intrinsic_select(&self, attr_id: AttrId, struct_env: &StructEnv) {
+        if struct_env.is_intrinsic() && self.fun_target.global_env().generated_by_v2() {
+            // There is code in the framework which produces this warning.
+            // Only report if we are running v2.
+            self.parent.env.diag(
+                Severity::Warning,
+                &self.fun_target.get_bytecode_loc(attr_id),
+                "cannot select field of intrinsic struct",
+            )
+        }
+    }
+
     /// Returns read aggregate and write aggregate if fun_env matches one of the native functions
     /// implementing custom mutable borrow.
     fn get_borrow_native_aggregate_names(&self, fn_name: &String) -> Option<(String, String)> {
@@ -2359,12 +2704,19 @@ impl<'env> FunctionTranslator<'env> {
                 BorrowEdge::Direct => {
                     self.translate_write_back_update(mk_dest, get_path_index, src, edges, at + 1)
                 },
-                BorrowEdge::Field(memory, offset) => {
+                BorrowEdge::Field(memory, variant, offset) => {
                     let memory = memory.to_owned().instantiate(self.type_inst);
                     let struct_env = &self.parent.env.get_struct_qid(memory.to_qualified_id());
-                    let field_env = &struct_env.get_field_by_offset(*offset);
-                    let sel_fun = boogie_field_sel(field_env, &memory.inst);
-                    let new_dest = format!("{}({})", sel_fun, (*mk_dest)());
+                    let field_env = if variant.is_none() {
+                        struct_env.get_field_by_offset_optional_variant(None, *offset)
+                    } else {
+                        struct_env.get_field_by_offset_optional_variant(
+                            Some(variant.clone().unwrap()[0]),
+                            *offset,
+                        )
+                    };
+                    let field_sel = boogie_field_sel(&field_env);
+                    let new_dest = format!("{}->{}", (*mk_dest)(), field_sel);
                     let mut new_dest_needed = false;
                     let new_src = self.translate_write_back_update(
                         &mut || {
@@ -2376,7 +2728,7 @@ impl<'env> FunctionTranslator<'env> {
                         edges,
                         at + 1,
                     );
-                    let update_fun = boogie_field_update(field_env, &memory.inst);
+                    let update_fun = boogie_field_update(&field_env, &memory.inst);
                     if new_dest_needed {
                         format!(
                             "(var $$sel{} := {}; {}({}, {}))",
@@ -2605,8 +2957,6 @@ impl<'env> FunctionTranslator<'env> {
                     _ => {},
                 },
                 Prop(_, PropKind::Modifies, exp) => {
-                    // global_state.exp_operation_map.get(exp.node_id()) == Bitwise;
-                    //let bv_flag = env.get_node_num_oper(exp.node_id()) == Bitwise;
                     let bv_flag = global_state.get_node_num_oper(exp.node_id()) == Bitwise;
                     need(&BOOL_TYPE, false, 1);
                     need(&self.inst(&env.get_node_type(exp.node_id())), bv_flag, 1)
@@ -2627,13 +2977,27 @@ fn struct_has_native_equality(
         // Everything has native equality
         return true;
     }
-    for field in struct_env.get_fields() {
-        if !has_native_equality(
-            struct_env.module_env.env,
-            options,
-            &field.get_type().instantiate(inst),
-        ) {
-            return false;
+    if struct_env.has_variants() {
+        for variant in struct_env.get_variants() {
+            for field in struct_env.get_fields_of_variant(variant) {
+                if !has_native_equality(
+                    struct_env.module_env.env,
+                    options,
+                    &field.get_type().instantiate(inst),
+                ) {
+                    return false;
+                }
+            }
+        }
+    } else {
+        for field in struct_env.get_fields() {
+            if !has_native_equality(
+                struct_env.module_env.env,
+                options,
+                &field.get_type().instantiate(inst),
+            ) {
+                return false;
+            }
         }
     }
     true

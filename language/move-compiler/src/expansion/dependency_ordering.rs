@@ -133,10 +133,7 @@ impl<'a> Context<'a> {
             .neighbors_by_node
             .entry(current.clone())
             .or_insert_with(UniqueMap::new);
-        let current_used_addresses = self
-            .addresses_by_node
-            .entry(current.clone())
-            .or_insert_with(BTreeSet::new);
+        let current_used_addresses = self.addresses_by_node.entry(current.clone()).or_default();
         current_neighbors.remove(&mident);
         current_neighbors.add(mident, neighbor).unwrap();
         current_used_addresses.insert(mident.value.address);
@@ -150,9 +147,9 @@ impl<'a> Context<'a> {
                 let m = self
                     .module_neighbors
                     .entry(node)
-                    .or_insert_with(BTreeMap::new)
+                    .or_default()
                     .entry(new_neighbor)
-                    .or_insert_with(BTreeMap::new);
+                    .or_default();
                 if m.contains_key(&dep_type) {
                     return;
                 }
@@ -173,7 +170,7 @@ impl<'a> Context<'a> {
     fn add_address_usage(&mut self, address: Address) {
         self.addresses_by_node
             .entry(self.current_node.clone().unwrap())
-            .or_insert_with(BTreeSet::new)
+            .or_default()
             .insert(address);
     }
 }
@@ -338,8 +335,15 @@ fn function_acquires(context: &mut Context, acqs: &[E::ModuleAccess]) {
 //**************************************************************************************************
 
 fn struct_def(context: &mut Context, sdef: &E::StructDefinition) {
-    if let E::StructFields::Defined(fields) = &sdef.fields {
+    if let E::StructLayout::Singleton(fields, _) = &sdef.layout {
         fields.iter().for_each(|(_, _, (_, bt))| type_(context, bt));
+    } else if let E::StructLayout::Variants(variants) = &sdef.layout {
+        for variant in variants {
+            variant
+                .fields
+                .iter()
+                .for_each(|(_, _, (_, bt))| type_(context, bt));
+        }
     }
 }
 
@@ -348,7 +352,7 @@ fn struct_def(context: &mut Context, sdef: &E::StructDefinition) {
 //**************************************************************************************************
 
 fn module_access(context: &mut Context, sp!(loc, ma_): &E::ModuleAccess) {
-    if let E::ModuleAccess_::ModuleAccess(m, _) = ma_ {
+    if let E::ModuleAccess_::ModuleAccess(m, _, _) = ma_ {
         context.add_usage(*m, *loc)
     }
 }
@@ -417,7 +421,7 @@ fn lvalues_with_range(context: &mut Context, sp!(_, ll): &E::LValueWithRangeList
 
 fn lvalue(context: &mut Context, sp!(_loc, a_): &E::LValue) {
     use E::LValue_ as L;
-    if let L::Unpack(m, bs_opt, f) = a_ {
+    if let L::Unpack(m, bs_opt, f, _) = a_ {
         module_access(context, m);
         types_opt(context, bs_opt);
         lvalues(context, f.iter().map(|(_, _, (_, b))| b));
@@ -431,8 +435,8 @@ fn exp(context: &mut Context, sp!(_loc, e_): &E::Exp) {
 
         E::Unit { .. }
         | E::UnresolvedError
-        | E::Break
-        | E::Continue
+        | E::Break(_)
+        | E::Continue(_)
         | E::Spec(_, _, _)
         | E::Value(_)
         | E::Move(_)
@@ -463,7 +467,18 @@ fn exp(context: &mut Context, sp!(_loc, e_): &E::Exp) {
             exp(context, ef)
         },
 
-        E::BinopExp(e1, _, e2) | E::Mutate(e1, e2) | E::While(e1, e2) | E::Index(e1, e2) => {
+        E::Match(ed, arms) => {
+            exp(context, ed);
+            for arm in arms {
+                lvalues(context, &arm.value.0.value);
+                if let Some(e) = &arm.value.1 {
+                    exp(context, e)
+                }
+                exp(context, &arm.value.2)
+            }
+        },
+
+        E::BinopExp(e1, _, e2) | E::Mutate(e1, e2) | E::While(_, e1, e2) | E::Index(e1, e2) => {
             exp(context, e1);
             exp(context, e2)
         },
@@ -477,7 +492,7 @@ fn exp(context: &mut Context, sp!(_loc, e_): &E::Exp) {
             exp(context, e);
         },
 
-        E::Loop(e)
+        E::Loop(_, e)
         | E::Return(e)
         | E::Abort(e)
         | E::Dereference(e)
@@ -492,9 +507,15 @@ fn exp(context: &mut Context, sp!(_loc, e_): &E::Exp) {
             exp(context, e);
             type_(context, ty)
         },
+        E::Test(e, tys) => {
+            exp(context, e);
+            tys.iter().for_each(|ty| type_(context, ty))
+        },
 
         E::Lambda(ll, e) => {
-            lvalues(context, &ll.value);
+            use crate::expansion::ast::TypedLValue_;
+            let mapped = ll.value.iter().map(|sp!(_, TypedLValue_(lv, _opt_ty))| lv);
+            lvalues(context, mapped);
             exp(context, e)
         },
         E::Quant(_, binds, es_vec, eopt, e) => {
@@ -571,7 +592,7 @@ fn spec_block_member(context: &mut Context, sp!(_, sbm_): &E::SpecBlockMember) {
                         Some(E::PragmaValue::Literal(_)) => (),
                         Some(E::PragmaValue::Ident(maccess)) => match &maccess.value {
                             E::ModuleAccess_::Name(_) => (),
-                            E::ModuleAccess_::ModuleAccess(mident, _) => {
+                            E::ModuleAccess_::ModuleAccess(mident, _, _) => {
                                 context.add_friend(*mident, maccess.loc);
                             },
                         },

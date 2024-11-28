@@ -18,6 +18,7 @@ fn test_function_handle_type_instantiation() {
         parameters: SignatureIndex(0),
         return_: SignatureIndex(0),
         type_parameters: std::iter::repeat(AbilitySet::ALL).take(10).collect(),
+        access_specifiers: None,
     });
 
     assert_eq!(
@@ -40,6 +41,7 @@ fn test_function_handle_type_instantiation() {
         parameters: SignatureIndex(0),
         return_: SignatureIndex(0),
         type_parameters: std::iter::repeat(AbilitySet::ALL).take(10).collect(),
+        access_specifiers: None,
     });
 
     assert_eq!(
@@ -123,6 +125,7 @@ fn test_function_handle_parameters() {
         parameters: SignatureIndex(1),
         return_: SignatureIndex(0),
         type_parameters: vec![],
+        access_specifiers: None,
     });
 
     assert_eq!(
@@ -148,6 +151,7 @@ fn test_function_handle_parameters() {
         parameters: SignatureIndex(1),
         return_: SignatureIndex(0),
         type_parameters: vec![],
+        access_specifiers: None,
     });
 
     assert_eq!(
@@ -210,6 +214,7 @@ fn big_vec_unpacks() {
             parameters: SignatureIndex(1),
             return_: SignatureIndex(0),
             type_parameters: vec![],
+            access_specifiers: None,
         }],
         field_handles: vec![],
         friend_decls: vec![],
@@ -238,6 +243,10 @@ fn big_vec_unpacks() {
                 code,
             }),
         }],
+        struct_variant_handles: vec![],
+        struct_variant_instantiations: vec![],
+        variant_field_handles: vec![],
+        variant_field_instantiations: vec![],
     };
 
     // save module and verify that it can ser/de
@@ -652,6 +661,7 @@ fn multi_functions(module: &mut CompiledModule, count: usize) {
             parameters: SignatureIndex((module.signatures.len() - 1) as u16),
             return_: SignatureIndex((module.signatures.len() - 1) as u16),
             type_parameters: vec![],
+            access_specifiers: None,
         });
         module.function_defs.push(FunctionDefinition {
             function: FunctionHandleIndex((module.function_handles.len() - 1) as u16),

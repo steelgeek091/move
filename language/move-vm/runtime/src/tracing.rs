@@ -7,7 +7,7 @@ use crate::debug::DebugContext;
 #[cfg(any(debug_assertions, feature = "debugging"))]
 use crate::{
     interpreter::Interpreter,
-    loader::{Function, Loader},
+    loader::{LoadedFunction, Resolver},
 };
 #[cfg(any(debug_assertions, feature = "debugging"))]
 use ::{
@@ -18,14 +18,15 @@ use ::{
         env,
         fs::{File, OpenOptions},
         io::Write,
-        process,
         sync::Mutex,
-        thread,
     },
 };
 
 #[cfg(any(debug_assertions, feature = "debugging"))]
 const MOVE_VM_TRACING_ENV_VAR_NAME: &str = "MOVE_VM_TRACE";
+
+#[cfg(any(debug_assertions, feature = "debugging"))]
+const MOVE_VM_TRACING_FLUSH_ENV_VAR_NAME: &str = "MOVE_VM_TRACE_FLUSH";
 
 #[cfg(any(debug_assertions, feature = "debugging"))]
 const MOVE_VM_STEPPING_ENV_VAR_NAME: &str = "MOVE_VM_STEP";
@@ -36,23 +37,29 @@ static FILE_PATH: Lazy<String> = Lazy::new(|| {
 });
 
 #[cfg(any(debug_assertions, feature = "debugging"))]
-static TRACING_ENABLED: Lazy<bool> = Lazy::new(|| env::var(MOVE_VM_TRACING_ENV_VAR_NAME).is_ok());
+pub static TRACING_ENABLED: Lazy<bool> =
+    Lazy::new(|| env::var(MOVE_VM_TRACING_ENV_VAR_NAME).is_ok());
 
 #[cfg(any(debug_assertions, feature = "debugging"))]
 static DEBUGGING_ENABLED: Lazy<bool> =
     Lazy::new(|| env::var(MOVE_VM_STEPPING_ENV_VAR_NAME).is_ok());
 
 #[cfg(any(debug_assertions, feature = "debugging"))]
-static LOGGING_FILE: Lazy<Mutex<File>> = Lazy::new(|| {
-    Mutex::new(
-        OpenOptions::new()
-            .write(true)
-            .create(true)
-            .append(true)
-            .open(&*FILE_PATH)
-            .unwrap(),
-    )
+pub static LOGGING_FILE_WRITER: Lazy<Mutex<std::io::BufWriter<File>>> = Lazy::new(|| {
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&*FILE_PATH)
+        .unwrap();
+    Mutex::new(std::io::BufWriter::with_capacity(
+        4096 * 1024, /* 4096KB */
+        file,
+    ))
 });
+
+#[cfg(any(debug_assertions, feature = "debugging"))]
+pub static SINGLE_STEP_FLUSHING: Lazy<bool> =
+    Lazy::new(|| env::var(MOVE_VM_TRACING_FLUSH_ENV_VAR_NAME).is_ok());
 
 #[cfg(any(debug_assertions, feature = "debugging"))]
 static DEBUG_CONTEXT: Lazy<Mutex<DebugContext>> = Lazy::new(|| Mutex::new(DebugContext::new()));
@@ -60,31 +67,31 @@ static DEBUG_CONTEXT: Lazy<Mutex<DebugContext>> = Lazy::new(|| Mutex::new(DebugC
 // Only include in debug builds
 #[cfg(any(debug_assertions, feature = "debugging"))]
 pub(crate) fn trace(
-    function_desc: &Function,
+    function: &LoadedFunction,
     locals: &Locals,
     pc: u16,
     instr: &Bytecode,
-    loader: &Loader,
+    resolver: &Resolver,
     interp: &Interpreter,
 ) {
     if *TRACING_ENABLED {
-        let f = &mut *LOGGING_FILE.lock().unwrap();
-        writeln!(
-            f,
-            "{}-{:?},{},{},{:?}",
-            process::id(),
-            thread::current().id(),
-            function_desc.pretty_string(),
-            pc,
-            instr,
-        )
-        .unwrap();
+        let buf_writer = &mut *LOGGING_FILE_WRITER.lock().unwrap();
+        buf_writer
+            .write_fmt(format_args!(
+                "{},{}\n",
+                function.name_as_pretty_string(),
+                pc,
+            ))
+            .unwrap();
+        if *SINGLE_STEP_FLUSHING {
+            buf_writer.flush().unwrap();
+        }
     }
     if *DEBUGGING_ENABLED {
         DEBUG_CONTEXT
             .lock()
             .unwrap()
-            .debug_loop(function_desc, locals, pc, instr, loader, interp);
+            .debug_loop(function, locals, pc, instr, resolver, interp);
     }
 }
 
@@ -93,13 +100,6 @@ macro_rules! trace {
     ($function_desc:expr, $locals:expr, $pc:expr, $instr:tt, $resolver:expr, $interp:expr) => {
         // Only include this code in debug releases
         #[cfg(any(debug_assertions, feature = "debugging"))]
-        $crate::tracing::trace(
-            &$function_desc,
-            $locals,
-            $pc,
-            &$instr,
-            $resolver.loader(),
-            $interp,
-        )
+        $crate::tracing::trace(&$function_desc, $locals, $pc, &$instr, $resolver, $interp)
     };
 }

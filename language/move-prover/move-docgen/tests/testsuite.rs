@@ -6,7 +6,8 @@ use codespan_reporting::term::termcolor::Buffer;
 use itertools::Itertools;
 #[allow(unused_imports)]
 use log::debug;
-use move_prover::{cli::Options, run_move_prover};
+use move_model::metadata::LanguageVersion;
+use move_prover::{cli::Options, run_move_prover, run_move_prover_v2};
 use move_prover_test_utils::baseline_test::verify_or_update_baseline;
 use std::{
     fs::File,
@@ -20,7 +21,10 @@ const FLAGS: &[&str] = &[
     "--dependency=../../move-stdlib/sources",
     "--named-addresses=std=0x1",
     "--docgen",
+    "--skip-attribute-checks",
 ];
+
+const V2_TEST_DIR: &str = "test-compiler-v2";
 
 fn test_runner(path: &Path) -> datatest_stable::Result<()> {
     let mut args = vec!["mvp_test".to_string()];
@@ -74,6 +78,7 @@ fn test_runner(path: &Path) -> datatest_stable::Result<()> {
 fn test_docgen(path: &Path, mut options: Options, suffix: &str) -> anyhow::Result<()> {
     let mut temp_path = PathBuf::from(TempDir::new()?.path());
     options.docgen.output_directory = temp_path.to_string_lossy().to_string();
+    options.skip_attribute_checks = true;
     let base_name = format!(
         "{}.md",
         path.file_stem()
@@ -84,8 +89,18 @@ fn test_docgen(path: &Path, mut options: Options, suffix: &str) -> anyhow::Resul
     );
     temp_path.push(&base_name);
 
+    if path.to_str().is_some_and(|s| s.contains(V2_TEST_DIR)) {
+        options.compiler_v2 = true;
+        options.language_version = Some(LanguageVersion::latest_stable());
+    }
+
     let mut error_writer = Buffer::no_color();
-    let mut output = match run_move_prover(&mut error_writer, options) {
+    let prover_runner = if path.to_str().is_some_and(|s| s.contains(V2_TEST_DIR)) {
+        run_move_prover_v2
+    } else {
+        run_move_prover
+    };
+    let mut output = match prover_runner(&mut error_writer, options) {
         Ok(()) => {
             let mut contents = String::new();
             debug!("writing to {}", temp_path.display());
@@ -101,4 +116,4 @@ fn test_docgen(path: &Path, mut options: Options, suffix: &str) -> anyhow::Resul
     Ok(())
 }
 
-datatest_stable::harness!(test_runner, "tests/sources", r".*\.move|.*_template\.md",);
+datatest_stable::harness!(test_runner, "tests/sources", r".*\.move$|.*_template\.md$",);

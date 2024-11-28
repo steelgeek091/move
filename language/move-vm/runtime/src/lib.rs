@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![forbid(unsafe_code)]
+#![deny(deprecated)]
 
 //! The core Move VM logic.
 //!
@@ -12,20 +13,37 @@
 
 pub mod data_cache;
 mod interpreter;
-pub mod loader;
+mod loader;
 pub mod logging;
 pub mod move_vm;
 pub mod native_extensions;
 pub mod native_functions;
-pub mod runtime;
+mod runtime;
 pub mod session;
 #[macro_use]
-mod tracing;
+pub mod tracing;
 pub mod config;
+pub mod module_traversal;
 
 // Only include debugging functionality in debug builds
 #[cfg(any(debug_assertions, feature = "debugging"))]
 mod debug;
 
-#[cfg(test)]
-mod unit_tests;
+mod access_control;
+mod storage;
+
+pub use loader::{LoadedFunction, Module, Script};
+#[cfg(any(test, feature = "testing"))]
+pub use storage::implementations::unreachable_code_storage;
+pub use storage::{
+    code_storage::{ambassador_impl_CodeStorage, CodeStorage},
+    environment::{
+        ambassador_impl_WithRuntimeEnvironment, RuntimeEnvironment, WithRuntimeEnvironment,
+    },
+    implementations::{
+        unsync_code_storage::{AsUnsyncCodeStorage, UnsyncCodeStorage},
+        unsync_module_storage::{AsUnsyncModuleStorage, BorrowedOrOwned, UnsyncModuleStorage},
+    },
+    module_storage::{ambassador_impl_ModuleStorage, ModuleStorage},
+    publishing::{StagingModuleStorage, VerifiedModuleBundle},
+};

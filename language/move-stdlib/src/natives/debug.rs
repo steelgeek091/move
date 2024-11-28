@@ -178,7 +178,7 @@ mod testing {
         context: &NativeContext,
         ty: &Type,
     ) -> PartialVMResult<MoveStructLayout> {
-        let annotated_type_layout = context.type_to_fully_annotated_layout(ty)?.unwrap();
+        let annotated_type_layout = context.type_to_fully_annotated_layout(ty)?;
         match annotated_type_layout {
             MoveTypeLayout::Struct(annotated_struct_layout) => Ok(annotated_struct_layout),
             _ => Err(
@@ -234,7 +234,7 @@ mod testing {
         Ok(())
     }
 
-    fn is_non_empty_vector_u8(vec: &Vec<MoveValue>) -> bool {
+    fn is_non_empty_vector_u8(vec: &[MoveValue]) -> bool {
         if vec.is_empty() {
             false
         } else {
@@ -259,13 +259,13 @@ mod testing {
         include_int_types: bool,
     ) -> PartialVMResult<()> {
         // get type layout in VM format
-        let ty_layout = context.type_to_type_layout(&ty)?.unwrap();
+        let ty_layout = context.type_to_type_layout(&ty)?;
 
         match &ty_layout {
             MoveTypeLayout::Vector(_) => {
                 // get the inner type T of a vector<T>
                 let inner_ty = get_vector_inner_type(&ty)?;
-                let inner_tyl = context.type_to_type_layout(inner_ty)?.unwrap();
+                let inner_tyl = context.type_to_type_layout(inner_ty)?;
 
                 match inner_tyl {
                     // We cannot simply convert a `Value` (of type vector) to a `MoveValue` because
@@ -461,7 +461,10 @@ mod testing {
                 }
             },
             MoveValue::Struct(move_struct) => match move_struct {
-                MoveStruct::WithTypes { type_, mut fields } => {
+                MoveStruct::WithTypes {
+                    _type_: type_,
+                    _fields: mut fields,
+                } => {
                     let type_tag = TypeTag::from(type_.clone());
 
                     // Check if struct is an std::string::String

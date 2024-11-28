@@ -9,7 +9,7 @@ use crate::shared::{
 use move_command_line_common::files::FileHash;
 use move_ir_types::location::*;
 use move_symbol_pool::Symbol;
-use std::{fmt, hash::Hash};
+use std::{fmt, fmt::Formatter, hash::Hash};
 
 macro_rules! new_name {
     ($n:ident) => {
@@ -199,6 +199,7 @@ pub struct FriendDecl {
 
 new_name!(Field);
 new_name!(StructName);
+new_name!(VariantName);
 
 pub type ResourceLoc = Option<Loc>;
 
@@ -216,13 +217,24 @@ pub struct StructDefinition {
     pub abilities: Vec<Ability>,
     pub name: StructName,
     pub type_parameters: Vec<StructTypeParameter>,
-    pub fields: StructFields,
+    pub layout: StructLayout,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum StructFields {
-    Defined(Vec<(Field, Type)>),
+pub enum StructLayout {
+    // the second field is true iff the struct has positional fields
+    Singleton(Vec<(Field, Type)>, bool),
+    Variants(Vec<StructVariant>),
     Native(Loc),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct StructVariant {
+    pub attributes: Vec<Attributes>,
+    pub loc: Loc,
+    pub name: VariantName,
+    pub fields: Vec<(Field, Type)>,
+    pub is_positional: bool,
 }
 
 //**************************************************************************************************
@@ -233,6 +245,35 @@ new_name!(FunctionName);
 
 pub const NATIVE_MODIFIER: &str = "native";
 pub const ENTRY_MODIFIER: &str = "entry";
+
+/// An access specifier describes the resources being accessed by a function.
+/// In contrast to regular `NameAccessChain`, the identifiers inside of the
+/// chain can be wildcards (`*`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum AccessSpecifier_ {
+    Acquires(bool, NameAccessChain, Option<Vec<Type>>, AddressSpecifier),
+    Reads(bool, NameAccessChain, Option<Vec<Type>>, AddressSpecifier),
+    Writes(bool, NameAccessChain, Option<Vec<Type>>, AddressSpecifier),
+}
+
+pub type AccessSpecifier = Spanned<AccessSpecifier_>;
+
+/// An address specifier specifies the address at which a resource is accessed.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AddressSpecifier_ {
+    /// Represents that no address was specified, as in `Resource`
+    Empty,
+    /// Represents that the specified address is a wildcard, as in `Resource(*)`.
+    Any,
+    /// Represents the precise address.
+    Literal(NumericalAddress),
+    /// Represents a parameter name.
+    Name(Name),
+    /// Represents a function applied to a parameter name.
+    Call(NameAccessChain, Option<Vec<Type>>, Name),
+}
+
+pub type AddressSpecifier = Spanned<AddressSpecifier_>;
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct FunctionSignature {
@@ -246,6 +287,7 @@ pub enum Visibility {
     Public(Loc),
     Script(Loc),
     Friend(Loc),
+    Package(Loc),
     Internal,
 }
 
@@ -257,17 +299,15 @@ pub enum FunctionBody_ {
 pub type FunctionBody = Spanned<FunctionBody_>;
 
 #[derive(PartialEq, Debug, Clone)]
-// (public?) foo<T1(: copyable?), ..., TN(: copyable?)>(x1: t1, ..., xn: tn): t1 * ... * tn {
-//    body
-//  }
-// (public?) native foo<T1(: copyable?), ..., TN(: copyable?)>(x1: t1, ..., xn: tn): t1 * ... * tn;
 pub struct Function {
     pub attributes: Vec<Attributes>,
     pub loc: Loc,
     pub visibility: Visibility,
     pub entry: Option<Loc>,
     pub signature: FunctionSignature,
-    pub acquires: Vec<NameAccessChain>,
+    /// `None` indicates no specifiers given, `Some([])` indicates the `pure` keyword has been
+    /// used.
+    pub access_specifiers: Option<Vec<AccessSpecifier>>,
     pub name: FunctionName,
     pub inline: bool,
     pub body: FunctionBody,
@@ -425,6 +465,8 @@ pub enum NameAccessChain_ {
     Two(LeadingNameAccess, Name),
     // (<Name>|<Num>)::<Name>::<Name>
     Three(Spanned<(LeadingNameAccess, Name)>, Name),
+    // (<Name>|<Num>)::<Name>::<Name>::<Name>
+    Four(Spanned<(LeadingNameAccess, Name)>, Name, Name),
 }
 pub type NameAccessChain = Spanned<NameAccessChain_>;
 
@@ -460,18 +502,52 @@ pub type Type = Spanned<Type_>;
 //**************************************************************************************************
 
 new_name!(Var);
+new_name!(Label);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Bind_ {
     // x
     Var(Var),
-    // T { f1: b1, ... fn: bn }
-    // T<t1, ... , tn> { f1: b1, ... fn: bn }
-    Unpack(Box<NameAccessChain>, Option<Vec<Type>>, Vec<(Field, Bind)>),
+    // T { f1: b1, ... fn: bn, ".."? }
+    // T<t1, ... , tn> { f1: b1, ... fn: bn, ".."? }
+    Unpack(
+        Box<NameAccessChain>,
+        Option<Vec<Type>>,
+        Vec<BindFieldOrDotDot>,
+    ),
+    // T(e1, ..., en)
+    // T<t1, ... , tn>(e1, ..., en)
+    // where each e_i is an expression or a ".."
+    PositionalUnpack(Box<NameAccessChain>, Option<Vec<Type>>, Vec<BindOrDotDot>),
 }
 pub type Bind = Spanned<Bind_>;
 // b1, ..., bn
 pub type BindList = Spanned<Vec<Bind>>;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypedBind_(pub Bind, pub Option<Type>);
+pub type TypedBind = Spanned<TypedBind_>;
+
+// b1 [":" <Type>], ..., bn [":" <Type>]
+pub type TypedBindList = Spanned<Vec<TypedBind>>;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BindFieldOrDotDot_ {
+    // f : b
+    FieldBind(Field, Bind),
+    // ..
+    DotDot,
+}
+pub type BindFieldOrDotDot = Spanned<BindFieldOrDotDot_>;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BindOrDotDot_ {
+    // a bind
+    Bind(Bind),
+    // ..
+    DotDot,
+}
+pub type BindOrDotDot = Spanned<BindOrDotDot_>;
 
 pub type BindWithRange = Spanned<(Bind, Exp)>;
 pub type BindWithRangeList = Spanned<Vec<BindWithRange>>;
@@ -559,6 +635,16 @@ pub enum QuantKind_ {
 }
 pub type QuantKind = Spanned<QuantKind_>;
 
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum CallKind {
+    /// Regular function call.
+    Regular,
+    /// Macro style call (e.g. `assert!(c, x)`)
+    Macro,
+    /// Receiver style call (e.g. `x.f(y)`)
+    Receiver,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum Exp_ {
@@ -572,7 +658,13 @@ pub enum Exp_ {
 
     // f(earg,*)
     // f!(earg,*)
-    Call(NameAccessChain, bool, Option<Vec<Type>>, Spanned<Vec<Exp>>),
+    // earg.f(*)
+    Call(
+        NameAccessChain,
+        CallKind,
+        Option<Vec<Type>>,
+        Spanned<Vec<Exp>>,
+    ),
 
     // tn {f1: e1, ... , f_n: e_n }
     Pack(NameAccessChain, Option<Vec<Type>>, Vec<(Field, Exp)>),
@@ -587,15 +679,17 @@ pub enum Exp_ {
 
     // if (eb) et else ef
     IfElse(Box<Exp>, Box<Exp>, Option<Box<Exp>>),
-    // while (eb) eloop
-    While(Box<Exp>, Box<Exp>),
-    // loop eloop
-    Loop(Box<Exp>),
+    // [label] while (eb) eloop
+    While(Option<Label>, Box<Exp>, Box<Exp>),
+    // [label] loop eloop
+    Loop(Option<Label>, Box<Exp>),
+    // match (e) { b1 [ if c_1] => e1, ... }
+    Match(Box<Exp>, Vec<Spanned<(BindList, Option<Exp>, Exp)>>),
 
     // { seq }
     Block(Sequence),
-    // |x1, ..., xn| e
-    Lambda(BindList, Box<Exp>), // spec only
+    // | x1 [: t1], ..., xn [: tn] | e
+    Lambda(TypedBindList, Box<Exp>),
     // forall/exists x1 : e1, ..., xn [{ t1, .., tk } *] [where cond]: en.
     Quant(
         QuantKind,
@@ -609,17 +703,17 @@ pub enum Exp_ {
     // ()
     Unit,
 
-    // a = e
-    Assign(Box<Exp>, Box<Exp>),
+    // a [binop]= e
+    Assign(Box<Exp>, Option<BinOp>, Box<Exp>),
 
     // return e
     Return(Option<Box<Exp>>),
     // abort e
     Abort(Box<Exp>),
     // break
-    Break,
+    Break(Option<Label>),
     // continue
-    Continue,
+    Continue(Option<Label>),
 
     // *e
     Dereference(Box<Exp>),
@@ -641,6 +735,9 @@ pub enum Exp_ {
     Cast(Box<Exp>, Type),
     // (e: t)
     Annotate(Box<Exp>, Type),
+
+    // (e is t1 | .. | tn)
+    Test(Box<Exp>, Vec<Type>),
 
     // spec { ... }
     Spec(SpecBlock),
@@ -665,14 +762,24 @@ pub type Sequence = (
 pub enum SequenceItem_ {
     // e;
     Seq(Box<Exp>),
-    // let b : t = e;
-    // let b = e;
+    // let b : t;
+    // let b;
     Declare(BindList, Option<Type>),
     // let b : t = e;
     // let b = e;
     Bind(BindList, Option<Type>, Box<Exp>),
 }
 pub type SequenceItem = Spanned<SequenceItem_>;
+
+pub type MatchArm = Spanned<MatchArm_>;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchArm_ {
+    bind: Bind,
+    variant_name: NameAccessChain,
+    type_args: Option<Vec<Type>>,
+    bindings: Vec<(Field, Bind)>,
+}
 
 //**************************************************************************************************
 // Traits
@@ -886,14 +993,16 @@ impl BinOp_ {
 impl Visibility {
     pub const FRIEND: &'static str = "public(friend)";
     pub const INTERNAL: &'static str = "";
+    pub const PACKAGE: &'static str = "public(package)";
     pub const PUBLIC: &'static str = "public";
     pub const SCRIPT: &'static str = "public(script)";
 
     pub fn loc(&self) -> Option<Loc> {
         match self {
-            Visibility::Public(loc) | Visibility::Script(loc) | Visibility::Friend(loc) => {
-                Some(*loc)
-            },
+            Visibility::Public(loc)
+            | Visibility::Script(loc)
+            | Visibility::Friend(loc)
+            | Visibility::Package(loc) => Some(*loc),
             Visibility::Internal => None,
         }
     }
@@ -924,6 +1033,9 @@ impl fmt::Display for NameAccessChain_ {
             NameAccessChain_::One(n) => write!(f, "{}", n),
             NameAccessChain_::Two(ln, n2) => write!(f, "{}::{}", ln, n2),
             NameAccessChain_::Three(sp!(_, (ln, n2)), n3) => write!(f, "{}::{}::{}", ln, n2, n3),
+            NameAccessChain_::Four(sp!(_, (ln, n2)), n3, n4) => {
+                write!(f, "{}::{}::{}::{}", ln, n2, n3, n4)
+            },
         }
     }
 }
@@ -946,6 +1058,7 @@ impl fmt::Display for Visibility {
             Visibility::Public(_) => Visibility::PUBLIC,
             Visibility::Script(_) => Visibility::SCRIPT,
             Visibility::Friend(_) => Visibility::FRIEND,
+            Visibility::Package(_) => Visibility::PACKAGE,
             Visibility::Internal => Visibility::INTERNAL,
         })
     }
@@ -962,6 +1075,15 @@ impl fmt::Display for Ability_ {
     }
 }
 
+impl fmt::Display for CallKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            CallKind::Regular => "",
+            CallKind::Macro => "!",
+            CallKind::Receiver => ".",
+        })
+    }
+}
 //**************************************************************************************************
 // Debug
 //**************************************************************************************************
@@ -1213,7 +1335,7 @@ impl AstDebug for StructDefinition {
             abilities,
             name,
             type_parameters,
-            fields,
+            layout,
         } = self;
         attributes.ast_debug(w);
 
@@ -1222,19 +1344,21 @@ impl AstDebug for StructDefinition {
             false
         });
 
-        if let StructFields::Native(_) = fields {
+        if let StructLayout::Native(_) = layout {
             w.write("native ");
         }
 
         w.write(&format!("struct {}", name));
         type_parameters.ast_debug(w);
-        if let StructFields::Defined(fields) = fields {
-            w.block(|w| {
+        match layout {
+            StructLayout::Singleton(fields, _) => w.block(|w| {
                 w.semicolon(fields, |w, (f, st)| {
                     w.write(&format!("{}: ", f));
                     st.ast_debug(w);
                 });
-            })
+            }),
+            StructLayout::Variants(_) => w.writeln("variant printing NYI"),
+            StructLayout::Native(_) => {},
         }
     }
 }
@@ -1457,7 +1581,7 @@ impl AstDebug for Function {
             visibility,
             entry,
             signature,
-            acquires,
+            access_specifiers: _, // No one uses those dump functions, so skipping this...
             inline,
             name,
             body,
@@ -1476,11 +1600,6 @@ impl AstDebug for Function {
             w.write(&format!("fun {}", name));
         }
         signature.ast_debug(w);
-        if !acquires.is_empty() {
-            w.write(" acquires ");
-            w.comma(acquires, |w, m| w.write(&format!("{}", m)));
-            w.write(" ");
-        }
         match &body.value {
             FunctionBody_::Defined(body) => w.block(|w| body.ast_debug(w)),
             FunctionBody_::Native => w.writeln(";"),
@@ -1669,6 +1788,7 @@ impl AstDebug for SequenceItem_ {
                 w.write("let ");
                 bs.ast_debug(w);
                 if let Some(ty) = ty_opt {
+                    w.write(":");
                     ty.ast_debug(w)
                 }
             },
@@ -1676,6 +1796,7 @@ impl AstDebug for SequenceItem_ {
                 w.write("let ");
                 bs.ast_debug(w);
                 if let Some(ty) = ty_opt {
+                    w.write(":");
                     ty.ast_debug(w)
                 }
                 w.write(" = ");
@@ -1701,11 +1822,9 @@ impl AstDebug for Exp_ {
                     w.write(">");
                 }
             },
-            E::Call(ma, is_macro, tys_opt, sp!(_, rhs)) => {
+            E::Call(ma, kind, tys_opt, sp!(_, rhs)) => {
                 ma.ast_debug(w);
-                if *is_macro {
-                    w.write("!");
-                }
+                w.write(kind.to_string());
                 if let Some(ss) = tys_opt {
                     w.write("<");
                     ss.ast_debug(w);
@@ -1750,20 +1869,40 @@ impl AstDebug for Exp_ {
                     f.ast_debug(w);
                 }
             },
-            E::While(b, e) => {
+            E::Match(e, arms) => {
+                w.write("match (");
+                e.ast_debug(w);
+                w.write(") {");
+                for arm in arms {
+                    arm.value.0.ast_debug(w);
+                    if let Some(cond) = &arm.value.1 {
+                        w.write(" if ");
+                        cond.ast_debug(w);
+                    }
+                    w.write(" => ");
+                    arm.value.2.ast_debug(w)
+                }
+            },
+            E::While(l, b, e) => {
+                if let Some(l) = l {
+                    w.write(&format!("{}: ", l.value().as_str()))
+                }
                 w.write("while (");
                 b.ast_debug(w);
                 w.write(")");
                 e.ast_debug(w);
             },
-            E::Loop(e) => {
+            E::Loop(l, e) => {
+                if let Some(l) = l {
+                    w.write(&format!("{}: ", l.value().as_str()))
+                }
                 w.write("loop ");
                 e.ast_debug(w);
             },
             E::Block(seq) => w.block(|w| seq.ast_debug(w)),
-            E::Lambda(sp!(_, bs), e) => {
+            E::Lambda(sp!(_, tbs), e) => {
                 w.write("|");
-                bs.ast_debug(w);
+                tbs.ast_debug(w);
                 w.write("|");
                 e.ast_debug(w);
             },
@@ -1784,9 +1923,13 @@ impl AstDebug for Exp_ {
                 w.comma(es, |w, e| e.ast_debug(w));
                 w.write(")");
             },
-            E::Assign(lvalue, rhs) => {
+            E::Assign(lvalue, op_opt, rhs) => {
                 lvalue.ast_debug(w);
-                w.write(" = ");
+                w.write(" ");
+                if let Some(op) = op_opt {
+                    op.ast_debug(w);
+                }
+                w.write("= ");
                 rhs.ast_debug(w);
             },
             E::Return(e) => {
@@ -1800,8 +1943,18 @@ impl AstDebug for Exp_ {
                 w.write("abort ");
                 e.ast_debug(w);
             },
-            E::Break => w.write("break"),
-            E::Continue => w.write("continue"),
+            E::Break(l) => {
+                w.write("break");
+                if let Some(l) = l {
+                    w.write(format!(" {}", l.value().as_str()));
+                }
+            },
+            E::Continue(l) => {
+                w.write("continue");
+                if let Some(l) = l {
+                    w.write(format!(" {}", l.value().as_str()));
+                }
+            },
             E::Dereference(e) => {
                 w.write("*");
                 e.ast_debug(w)
@@ -1834,6 +1987,16 @@ impl AstDebug for Exp_ {
                 e.ast_debug(w);
                 w.write(" as ");
                 ty.ast_debug(w);
+                w.write(")");
+            },
+            E::Test(e, tys) => {
+                w.write("(");
+                e.ast_debug(w);
+                w.write(" is ");
+                w.list(tys, "|", |w, item| {
+                    item.ast_debug(w);
+                    false
+                });
                 w.write(")");
             },
             E::Index(e, i) => {
@@ -1929,6 +2092,29 @@ impl AstDebug for Vec<Bind> {
     }
 }
 
+impl AstDebug for BindOrDotDot_ {
+    fn ast_debug(&self, w: &mut AstWriter) {
+        use BindOrDotDot_ as B;
+        match self {
+            B::Bind(b) => b.ast_debug(w),
+            B::DotDot => w.write(".."),
+        }
+    }
+}
+
+impl AstDebug for BindFieldOrDotDot_ {
+    fn ast_debug(&self, w: &mut AstWriter) {
+        use BindFieldOrDotDot_ as B;
+        match self {
+            B::FieldBind(f, b) => {
+                w.write(&format!("{}: ", f));
+                b.ast_debug(w);
+            },
+            B::DotDot => w.write(".."),
+        }
+    }
+}
+
 impl AstDebug for Vec<Vec<Exp>> {
     fn ast_debug(&self, w: &mut AstWriter) {
         for trigger in self {
@@ -1952,12 +2138,39 @@ impl AstDebug for Bind_ {
                     w.write(">");
                 }
                 w.write("{");
-                w.comma(fields, |w, (f, b)| {
-                    w.write(&format!("{}: ", f));
-                    b.ast_debug(w);
+                w.comma(fields, |w, field| {
+                    field.ast_debug(w);
                 });
                 w.write("}");
             },
+            B::PositionalUnpack(ma, tys_opt, args) => {
+                ma.ast_debug(w);
+                if let Some(ss) = tys_opt {
+                    w.write("<");
+                    ss.ast_debug(w);
+                    w.write(">");
+                }
+                w.write("(");
+                w.comma(args, |w, b| b.ast_debug(w));
+                w.write(")");
+            },
+        }
+    }
+}
+
+impl AstDebug for Vec<TypedBind> {
+    fn ast_debug(&self, w: &mut AstWriter) {
+        w.comma(self, |w, b| b.ast_debug(w));
+    }
+}
+
+impl AstDebug for TypedBind_ {
+    fn ast_debug(&self, w: &mut AstWriter) {
+        let TypedBind_(b, ty_opt) = self;
+        b.ast_debug(w);
+        if let Some(ty) = ty_opt {
+            w.write(":");
+            ty.ast_debug(w)
         }
     }
 }

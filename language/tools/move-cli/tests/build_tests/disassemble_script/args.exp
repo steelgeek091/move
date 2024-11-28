@@ -1,9 +1,9 @@
 Command `disassemble --name main`:
-// Move bytecode v6
+// Move bytecode v7
 script {
 
 
-main() {
+main() /* def_idx: 0 */ {
 B0:
 	0: Ret
 }

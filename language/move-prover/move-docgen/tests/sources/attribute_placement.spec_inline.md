@@ -1,5 +1,5 @@
 
-<a name="0x42_N"></a>
+<a id="0x42_N"></a>
 
 # Module `0x42::N`
 
@@ -17,7 +17,7 @@
 
 
 
-<a name="0x42_N_bar"></a>
+<a id="0x42_N_bar"></a>
 
 ## Function `bar`
 
@@ -42,7 +42,7 @@
 
 
 
-<a name="0x42_M"></a>
+<a id="0x42_M"></a>
 
 # Module `0x42::M`
 
@@ -65,7 +65,7 @@
 
 
 
-<a name="0x42_M_S"></a>
+<a id="0x42_M_S"></a>
 
 ## Struct `S`
 
@@ -93,7 +93,7 @@
 
 </details>
 
-<a name="0x42_M_T"></a>
+<a id="0x42_M_T"></a>
 
 ## Struct `T`
 
@@ -122,12 +122,12 @@
 
 </details>
 
-<a name="@Constants_0"></a>
+<a id="@Constants_0"></a>
 
 ## Constants
 
 
-<a name="0x42_M_C"></a>
+<a id="0x42_M_C"></a>
 
 
 
@@ -136,7 +136,7 @@
 
 
 
-<a name="0x42_M_foo"></a>
+<a id="0x42_M_foo"></a>
 
 ## Function `foo`
 
@@ -169,9 +169,9 @@
 
 
 
-<a name="0x1_main"></a>
+<a id="main"></a>
 
-# Module `0x1::main`
+# Script `main`
 
 
 
@@ -181,7 +181,6 @@
 
 
 -  [Constants](#@Constants_0)
--  [Function `main`](#0x1_main_main)
 
 
 <pre><code><b>use</b> <a href="attribute_placement.md#0x42_M">0x42::M</a>;
@@ -189,28 +188,23 @@
 
 
 
-<a name="@Constants_0"></a>
+<a id="@Constants_0"></a>
 
 ## Constants
 
 
-<a name="0x1_main_C"></a>
+<a id="main_C"></a>
 
 
 
-<pre><code><b>const</b> <a href="attribute_placement.md#0x1_main_C">C</a>: u64 = 0;
+<pre><code><b>const</b> <a href="attribute_placement.md#main_C">C</a>: u64 = 0;
 </code></pre>
 
 
 
-<a name="0x1_main_main"></a>
-
-## Function `main`
-
-
 
 <pre><code>#[attr14]
-<b>fun</b> <a href="attribute_placement.md#0x1_main">main</a>()
+<b>fun</b> <a href="attribute_placement.md#main">main</a>()
 </code></pre>
 
 
@@ -219,7 +213,7 @@
 <summary>Implementation</summary>
 
 
-<pre><code><b>fun</b> <a href="attribute_placement.md#0x1_main">main</a>() {
+<pre><code><b>fun</b> <a href="attribute_placement.md#main">main</a>() {
     <a href="attribute_placement.md#0x42_M_foo">M::foo</a>();
 }
 </code></pre>

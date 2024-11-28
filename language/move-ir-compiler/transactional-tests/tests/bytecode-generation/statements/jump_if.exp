@@ -1,11 +1,11 @@
 processed 4 tasks
 
 task 0 'print-bytecode'. lines 1-22:
-// Move bytecode v6
+// Move bytecode v7
 script {
 
 
-main() {
+main() /* def_idx: 0 */ {
 L0:	loc0: u64
 B0:
 	0: LdU64(42)
@@ -28,11 +28,11 @@ B4:
 }
 
 task 1 'print-bytecode'. lines 24-41:
-// Move bytecode v6
+// Move bytecode v7
 script {
 
 
-main() {
+main() /* def_idx: 0 */ {
 L0:	loc0: u64
 B0:
 	0: LdU64(42)
@@ -52,11 +52,11 @@ B3:
 }
 
 task 2 'print-bytecode'. lines 43-59:
-// Move bytecode v6
+// Move bytecode v7
 script {
 
 
-main() {
+main() /* def_idx: 0 */ {
 L0:	loc0: u64
 B0:
 	0: LdU64(0)
@@ -85,11 +85,11 @@ B5:
 }
 
 task 3 'print-bytecode'. lines 61-74:
-// Move bytecode v6
+// Move bytecode v7
 script {
 
 
-main() {
+main() /* def_idx: 0 */ {
 L0:	loc0: u64
 B0:
 	0: LdU64(0)

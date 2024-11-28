@@ -6,8 +6,11 @@ use anyhow::Context;
 use codespan_reporting::{diagnostic::Severity, term::termcolor::Buffer};
 use evm::backend::MemoryVicinity;
 use evm_exec_utils::{compile, exec::Executor, tracing};
-use move_command_line_common::testing::EXP_EXT;
-use move_compiler::shared::{NumericalAddress, PackagePaths};
+use move_command_line_common::testing::get_compiler_exp_extension;
+use move_compiler::{
+    attr_derivation,
+    shared::{NumericalAddress, PackagePaths},
+};
 use move_model::{
     model::{FunId, GlobalEnv, QualifiedId},
     options::ModelBuilderOptions,
@@ -31,7 +34,6 @@ fn test_runner(path: &Path) -> datatest_stable::Result<()> {
     let deps = vec![
         path_from_crate_root("../stdlib/sources"),
         path_from_crate_root("../../move-stdlib/sources"),
-        path_from_crate_root("../../extensions/async/move-async-lib/sources"),
     ];
     let mut named_address_map = move_stdlib_named_addresses();
     named_address_map.insert(
@@ -42,25 +44,25 @@ fn test_runner(path: &Path) -> datatest_stable::Result<()> {
         "Evm".to_string(),
         NumericalAddress::parse_str("0x2").unwrap(),
     );
-    named_address_map.insert(
-        "Async".to_string(),
-        NumericalAddress::parse_str("0x1").unwrap(),
-    );
+    let flags = move_compiler::Flags::empty()
+        .set_sources_shadow_deps(true)
+        .set_flavor("evm");
+    let known_attributes = attr_derivation::get_known_attributes_for_flavor(&flags);
     let env = run_model_builder_with_options_and_compilation_flags(
         vec![PackagePaths {
             name: None,
             paths: sources,
             named_address_map: named_address_map.clone(),
         }],
+        vec![],
         vec![PackagePaths {
             name: None,
             paths: deps,
             named_address_map,
         }],
         ModelBuilderOptions::default(),
-        move_compiler::Flags::empty()
-            .set_sources_shadow_deps(true)
-            .set_flavor("async"),
+        flags,
+        &known_attributes,
     )?;
     for exp in std::iter::once(String::new()).chain(experiments.into_iter()) {
         let mut options = Options {
@@ -68,10 +70,10 @@ fn test_runner(path: &Path) -> datatest_stable::Result<()> {
             ..Options::default()
         };
         let ext = if exp.is_empty() {
-            EXP_EXT.to_string()
+            get_compiler_exp_extension().to_string()
         } else {
             options.experiments.push(exp.clone());
-            format!("{}.{}", EXP_EXT, exp)
+            format!("{}.{}", get_compiler_exp_extension(), exp)
         };
         let mut contracts = Generator::run(&options, &env);
         let mut out = "".to_string();

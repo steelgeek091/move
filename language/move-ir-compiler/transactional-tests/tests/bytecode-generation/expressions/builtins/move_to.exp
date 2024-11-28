@@ -1,19 +1,19 @@
 processed 4 tasks
 
 task 0 'print-bytecode'. lines 1-16:
-// Move bytecode v6
+// Move bytecode v7
 module 2d6.M {
 struct T has key {
 	b: bool
 }
 
-public new(): T {
+public new(): T /* def_idx: 0 */ {
 B0:
 	0: LdTrue
 	1: Pack[0](T)
 	2: Ret
 }
-f(Arg0: signer) {
+f(Arg0: signer) /* def_idx: 1 */ {
 B0:
 	0: ImmBorrowLoc[0](Arg0: signer)
 	1: Call new(): T

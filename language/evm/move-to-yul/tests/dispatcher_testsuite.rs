@@ -3,10 +3,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Result;
+use codespan_reporting::{
+    diagnostic::Severity,
+    term::termcolor::{ColorChoice, StandardStream},
+};
 use evm::{backend::MemoryVicinity, ExitReason};
 use evm_exec_utils::{compile, exec::Executor};
-use move_compiler::shared::{NumericalAddress, PackagePaths};
-use move_model::{options::ModelBuilderOptions, run_model_builder_with_options};
+use move_compiler::{
+    attr_derivation::get_known_attributes_for_flavor,
+    shared::{Flags, NumericalAddress, PackagePaths},
+};
+use move_model::{
+    options::ModelBuilderOptions, run_model_builder_with_options_and_compilation_flags,
+};
 use move_stdlib::move_stdlib_named_addresses;
 use move_to_yul::{generator::Generator, options::Options};
 use primitive_types::{H160, U256};
@@ -45,7 +54,6 @@ fn compile_yul_to_bytecode_bytes(filename: &str) -> Result<Vec<u8>> {
     let deps = vec![
         path_from_crate_root("../stdlib/sources"),
         path_from_crate_root("../../move-stdlib/sources"),
-        path_from_crate_root("../../extensions/async/move-async-lib/sources"),
     ];
     let mut named_address_map = move_stdlib_named_addresses();
     named_address_map.insert(
@@ -56,28 +64,34 @@ fn compile_yul_to_bytecode_bytes(filename: &str) -> Result<Vec<u8>> {
         "Evm".to_string(),
         NumericalAddress::parse_str("0x2").unwrap(),
     );
-    named_address_map.insert(
-        "Async".to_string(),
-        NumericalAddress::parse_str("0x1").unwrap(),
-    );
-    let env = run_model_builder_with_options(
+    let flags = Flags::verification().set_flavor("evm");
+    let known_attributes = get_known_attributes_for_flavor(&flags);
+    let env = run_model_builder_with_options_and_compilation_flags(
         vec![PackagePaths {
             name: None,
             paths: vec![contract_path(filename).to_string_lossy().to_string()],
             named_address_map: named_address_map.clone(),
         }],
+        vec![],
         vec![PackagePaths {
             name: None,
             paths: deps,
             named_address_map,
         }],
         ModelBuilderOptions::default(),
+        flags,
+        &known_attributes,
     )?;
+    if env.has_errors() {
+        let mut error_writer = StandardStream::stderr(ColorChoice::Auto);
+        env.report_diag(&mut error_writer, Severity::Warning);
+        panic!("compilation failed");
+    }
     let options = Options::default();
     let (_, out, _) = Generator::run(&options, &env)
         .pop()
         .expect("not contract in test case");
-    let (bc, _) = compile::solc_yul(&out, false)?;
+    let (bc, _) = compile::solc_yul(&out, true)?;
     Ok(bc)
 }
 

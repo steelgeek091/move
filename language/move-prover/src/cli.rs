@@ -805,6 +805,7 @@ impl Options {
             options.prover.ban_int_2_bv = true;
         }
 
+/*
         if matches.get_flag("aptos") {
             options.backend.custom_natives = Some(CustomNativeOptions {
                 template_bytes: include_bytes!(
@@ -817,6 +818,7 @@ impl Options {
                 .move_named_address_values
                 .push("Extensions=0x1".to_string())
         }
+*/
         if matches.get_flag("compiler-v2") {
             options.compiler_v2 = true;
         }

@@ -336,6 +336,18 @@ impl Loader {
         }
     }
 
+    pub fn load_type_v1(
+        &self,
+        ty_tag: &TypeTag,
+        data_store: &mut TransactionDataCache,
+        module_store: &LegacyModuleStorageAdapter,
+        ) -> VMResult<Type> {
+        match self {
+            Self::V1(loader) => loader.load_type(ty_tag, data_store, module_store),
+            Self::V2(_) => unreachable!("Loader V2 is never invalidated"),
+        }
+    }
+
     //
     // Internal helpers
     //

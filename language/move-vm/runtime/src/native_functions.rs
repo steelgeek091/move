@@ -237,4 +237,37 @@ impl<'a, 'b, 'c> NativeContext<'a, 'b, 'c> {
         };
         Ok(function)
     }
+
+    //pub fn events(&self) -> &Vec<(Vec<u8>, u64, Type, MoveTypeLayout, Value)> {
+    //    self.data_store.events()
+    //}
+
+    pub fn load_type(&mut self, type_tag: &TypeTag) -> VMResult<Type> {
+        self.resolver
+            .loader()
+            .load_type_v1(type_tag, self.data_store, self.resolver.module_store())
+    }
+
+    pub fn get_type_layout(&mut self, type_tag: &TypeTag) -> VMResult<MoveTypeLayout> {
+        let ty = self.resolver.loader().load_type_v1(
+            type_tag,
+            self.data_store,
+            self.resolver.module_store(),
+        )?;
+        self.resolver
+            .type_to_type_layout(&ty)
+            .map_err(|e| e.finish(Location::Undefined))
+    }
+
+    pub fn get_fully_annotated_type_layout(&self, type_tag: &TypeTag) -> VMResult<MoveTypeLayout> {
+        Ok(MoveTypeLayout::U64)
+        /*
+        self.resolver.loader().get_fully_annotated_type_layout(
+            type_tag,
+            self.data_store,
+            self.resolver.module_store(),
+            self.resolver.module_storage(),
+        )
+         */
+    }
 }

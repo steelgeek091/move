@@ -80,7 +80,7 @@ fn load_module_impl(
 /// The Move VM takes a `DataStore` in input and this is the default and correct implementation
 /// for a data store related to a transaction. Clients should create an instance of this type
 /// and pass it to the Move VM.
-pub(crate) struct TransactionDataCache<'r> {
+pub struct TransactionDataCache<'r> {
     remote: &'r dyn MoveResolver,
     account_map: BTreeMap<AccountAddress, AccountDataCache>,
 
@@ -106,12 +106,14 @@ impl<'r> TransactionDataCache<'r> {
             compiled_modules: BTreeMap::new(),
         }
     }
+}
 
+impl<'r> TransactionCache for TransactionDataCache<'r> {
     /// Make a write set from the updated (dirty, deleted) global resources along with
     /// published modules.
     ///
     /// Gives all proper guarantees on lifetime of global data as well.
-    pub(crate) fn into_effects(
+    fn into_effects(
         self,
         loader: &Loader,
         module_storage: &dyn ModuleStorage,
@@ -129,55 +131,7 @@ impl<'r> TransactionDataCache<'r> {
         self.into_custom_effects(&resource_converter, loader, module_storage)
     }
 
-    /// Same like `into_effects`, but also allows clients to select the format of
-    /// produced effects for resources.
-    pub(crate) fn into_custom_effects<Resource>(
-        self,
-        resource_converter: &dyn Fn(Value, MoveTypeLayout, bool) -> PartialVMResult<Resource>,
-        loader: &Loader,
-        module_storage: &dyn ModuleStorage,
-    ) -> PartialVMResult<Changes<Bytes, Resource>> {
-        let mut change_set = Changes::<Bytes, Resource>::new();
-        for (addr, account_data_cache) in self.account_map.into_iter() {
-            let mut modules = BTreeMap::new();
-            for (module_name, (module_blob, is_republishing)) in account_data_cache.module_map {
-                let op = if is_republishing {
-                    Op::Modify(module_blob)
-                } else {
-                    Op::New(module_blob)
-                };
-                modules.insert(module_name, op);
-            }
-
-            let mut resources = BTreeMap::new();
-            for (ty, (layout, gv, has_aggregator_lifting)) in account_data_cache.data_map {
-                if let Some(op) = gv.into_effect_with_layout(layout) {
-                    let struct_tag = match loader.type_to_type_tag(&ty, module_storage)? {
-                        TypeTag::Struct(struct_tag) => *struct_tag,
-                        _ => return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)),
-                    };
-                    resources.insert(
-                        struct_tag,
-                        op.and_then(|(value, layout)| {
-                            resource_converter(value, layout, has_aggregator_lifting)
-                        })?,
-                    );
-                }
-            }
-            if !modules.is_empty() || !resources.is_empty() {
-                change_set
-                    .add_account_changeset(
-                        addr,
-                        AccountChanges::from_modules_resources(modules, resources),
-                    )
-                    .expect("accounts should be unique");
-            }
-        }
-
-        Ok(change_set)
-    }
-
-    pub(crate) fn num_mutated_resources(&self, sender: &AccountAddress) -> u64 {
+    fn num_mutated_accounts(&self, sender: &AccountAddress) -> u64 {
         // The sender's account will always be mutated.
         let mut total_mutated_accounts: u64 = 1;
         for (addr, entry) in self.account_map.iter() {
@@ -188,22 +142,7 @@ impl<'r> TransactionDataCache<'r> {
         total_mutated_accounts
     }
 
-    fn get_mut_or_insert_with<'a, K, V, F>(map: &'a mut BTreeMap<K, V>, k: &K, gen: F) -> &'a mut V
-    where
-        F: FnOnce() -> (K, V),
-        K: Ord,
-    {
-        if !map.contains_key(k) {
-            let (k, v) = gen();
-            map.insert(k, v);
-        }
-        map.get_mut(k).unwrap()
-    }
-
-    // Retrieves data from the local cache or loads it from the remote cache into the local cache.
-    // All operations on the global data are based on this API and they all load the data
-    // into the cache.
-    pub(crate) fn load_resource(
+    fn load_resource(
         &mut self,
         loader: &Loader,
         module_storage: &dyn ModuleStorage,
@@ -309,11 +248,42 @@ impl<'r> TransactionDataCache<'r> {
         ))
     }
 
-    pub(crate) fn load_module(&self, module_id: &ModuleId) -> PartialVMResult<Bytes> {
+    fn load_module(&self, module_id: &ModuleId) -> PartialVMResult<Bytes> {
         load_module_impl(self.remote, &self.account_map, module_id)
     }
 
-    pub(crate) fn load_compiled_script_to_cache(
+    fn publish_module(
+        &mut self,
+        module_id: &ModuleId,
+        blob: Vec<u8>,
+        is_republishing: bool,
+    ) -> VMResult<()> {
+        let account_cache =
+            Self::get_mut_or_insert_with(&mut self.account_map, module_id.address(), || {
+                (*module_id.address(), AccountDataCache::new())
+            });
+
+        account_cache
+            .module_map
+            .insert(module_id.name().to_owned(), (blob.into(), is_republishing));
+
+        Ok(())
+    }
+
+    fn exists_module(&self, module_id: &ModuleId) -> VMResult<bool> {
+        if let Some(account_cache) = self.account_map.get(module_id.address()) {
+            if account_cache.module_map.contains_key(module_id.name()) {
+                return Ok(true);
+            }
+        }
+        Ok(self
+            .remote
+            .get_module(module_id)
+            .map_err(|e| e.finish(Location::Undefined))?
+            .is_some())
+    }
+
+    fn load_compiled_script_to_cache(
         &mut self,
         script_blob: &[u8],
         hash_value: [u8; 32],
@@ -339,7 +309,7 @@ impl<'r> TransactionDataCache<'r> {
         }
     }
 
-    pub(crate) fn load_compiled_module_to_cache(
+    fn load_compiled_module_to_cache(
         &mut self,
         id: ModuleId,
         allow_loading_failure: bool,
@@ -382,36 +352,119 @@ impl<'r> TransactionDataCache<'r> {
         }
     }
 
-    #[deprecated]
-    pub(crate) fn publish_module(
+    fn num_mutated_resources(&self, sender: &AccountAddress) -> u64 {
+        self.num_mutated_accounts(sender)
+    }
+
+    /// Same like `into_effects`, but also allows clients to select the format of
+    /// produced effects for resources.
+    fn into_custom_effects<Resource>(
+        self,
+        resource_converter: &dyn Fn(Value, MoveTypeLayout, bool) -> PartialVMResult<Resource>,
+        loader: &Loader,
+        module_storage: &dyn ModuleStorage,
+    ) -> PartialVMResult<Changes<Bytes, Resource>> {
+        let mut change_set = Changes::<Bytes, Resource>::new();
+        for (addr, account_data_cache) in self.account_map.into_iter() {
+            let mut modules = BTreeMap::new();
+            for (module_name, (module_blob, is_republishing)) in account_data_cache.module_map {
+                let op = if is_republishing {
+                    Op::Modify(module_blob)
+                } else {
+                    Op::New(module_blob)
+                };
+                modules.insert(module_name, op);
+            }
+
+            let mut resources = BTreeMap::new();
+            for (ty, (layout, gv, has_aggregator_lifting)) in account_data_cache.data_map {
+                if let Some(op) = gv.into_effect_with_layout(layout) {
+                    let struct_tag = match loader.type_to_type_tag(&ty, module_storage)? {
+                        TypeTag::Struct(struct_tag) => *struct_tag,
+                        _ => return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)),
+                    };
+                    resources.insert(
+                        struct_tag,
+                        op.and_then(|(value, layout)| {
+                            resource_converter(value, layout, has_aggregator_lifting)
+                        })?,
+                    );
+                }
+            }
+            if !modules.is_empty() || !resources.is_empty() {
+                change_set
+                    .add_account_changeset(
+                        addr,
+                        AccountChanges::from_modules_resources(modules, resources),
+                    )
+                    .expect("accounts should be unique");
+            }
+        }
+
+        Ok(change_set)
+    }
+
+
+}
+
+impl<'r> TransactionDataCache<'r> {
+    pub fn get_mut_or_insert_with<'a, K, V, F>(
+        map: &'a mut BTreeMap<K, V>,
+        k: &K,
+        gen: F,
+    ) -> &'a mut V
+    where
+        F: FnOnce() -> (K, V),
+        K: Ord,
+    {
+        if !map.contains_key(k) {
+            let (k, v) = gen();
+            map.insert(k, v);
+        }
+        map.get_mut(k).unwrap()
+    }
+}
+
+pub trait TransactionCache {
+    fn into_effects(
+        self,
+        loader: &Loader,
+        module_storage: &dyn ModuleStorage,
+    ) -> PartialVMResult<ChangeSet>;
+
+    fn into_custom_effects<Resource>(
+        self,
+        resource_converter: &dyn Fn(Value, MoveTypeLayout, bool) -> PartialVMResult<Resource>,
+        loader: &Loader,
+        module_storage: &dyn ModuleStorage,
+    ) -> PartialVMResult<Changes<Bytes, Resource>> where Self: Sized;
+
+    fn num_mutated_accounts(&self, sender: &AccountAddress) -> u64;
+    fn num_mutated_resources(&self, sender: &AccountAddress) -> u64;
+    fn load_resource(
+        &mut self,
+        loader: &Loader,
+        module_storage: &dyn ModuleStorage,
+        addr: AccountAddress,
+        ty: &Type,
+        module_store: &LegacyModuleStorageAdapter,
+    ) -> PartialVMResult<(&mut GlobalValue, Option<NumBytes>)>;
+    fn load_module(&self, module_id: &ModuleId) -> PartialVMResult<Bytes>;
+    fn publish_module(
         &mut self,
         module_id: &ModuleId,
         blob: Vec<u8>,
         is_republishing: bool,
-    ) -> VMResult<()> {
-        let account_cache =
-            Self::get_mut_or_insert_with(&mut self.account_map, module_id.address(), || {
-                (*module_id.address(), AccountDataCache::new())
-            });
-
-        account_cache
-            .module_map
-            .insert(module_id.name().to_owned(), (blob.into(), is_republishing));
-
-        Ok(())
-    }
-
-    #[deprecated]
-    pub(crate) fn exists_module(&self, module_id: &ModuleId) -> VMResult<bool> {
-        if let Some(account_cache) = self.account_map.get(module_id.address()) {
-            if account_cache.module_map.contains_key(module_id.name()) {
-                return Ok(true);
-            }
-        }
-        Ok(self
-            .remote
-            .get_module(module_id)
-            .map_err(|e| e.finish(Location::Undefined))?
-            .is_some())
-    }
+    ) -> VMResult<()>;
+    fn exists_module(&self, module_id: &ModuleId) -> VMResult<bool>;
+    fn load_compiled_script_to_cache(
+        &mut self,
+        script_blob: &[u8],
+        hash_value: [u8; 32],
+    ) -> VMResult<Arc<CompiledScript>>;
+    fn load_compiled_module_to_cache(
+        &mut self,
+        id: ModuleId,
+        allow_loading_failure: bool,
+    ) -> VMResult<(Arc<CompiledModule>, usize, [u8; 32])>;
 }

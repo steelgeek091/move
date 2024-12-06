@@ -245,11 +245,14 @@ impl<'a> BinaryModuleLoader<'a> {
                     let variant = variant as VariantIndex;
                     let variant_str = def_view.variant_name(variant).as_str();
                     let variant_sym = self.sym(variant_str);
-                    variant_map.insert(variant_sym, StructVariant {
-                        loc: loc.clone(), // source map has no info, so default to struct
-                        attributes: vec![],
-                        order: variant as usize,
-                    });
+                    variant_map.insert(
+                        variant_sym,
+                        StructVariant {
+                            loc: loc.clone(), // source map has no info, so default to struct
+                            attributes: vec![],
+                            order: variant as usize,
+                        },
+                    );
                     for (offset, fld) in def_view.fields_optional_variant(Some(variant)).enumerate()
                     {
                         let loc = self.loc(struct_source_map.and_then(|s| {
@@ -616,14 +619,15 @@ fn add_native_public_fun(
     result_type: Type,
 ) {
     let sym = env.symbol_pool().make(name);
-    module_data
-        .function_data
-        .insert(FunId::new(sym), FunctionData {
+    module_data.function_data.insert(
+        FunId::new(sym),
+        FunctionData {
             visibility: Visibility::Public,
             is_native: true,
             type_params,
             params,
             result_type,
             ..FunctionData::new(env.symbol_pool().make(name), env.unknown_loc())
-        });
+        },
+    );
 }

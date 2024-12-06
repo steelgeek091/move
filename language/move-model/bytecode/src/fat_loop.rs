@@ -195,10 +195,13 @@ impl FatLoopBuilder {
                     } else {
                         None
                     };
-                    fat_loops.insert(label, FatLoop {
-                        back_edges,
-                        spec_info,
-                    });
+                    fat_loops.insert(
+                        label,
+                        FatLoop {
+                            back_edges,
+                            spec_info,
+                        },
+                    );
                 },
                 Some((attr_id, count)) => {
                     if !invariants.is_empty() {
@@ -213,12 +216,15 @@ impl FatLoopBuilder {
                     }
                     // loop unrolling route
                     let loop_body = self.collect_loop_body_bytecode(code, &cfg, &sub_loops);
-                    fat_loops_for_unrolling.insert(label, LoopUnrollingMark {
-                        marker: attr_id,
-                        loop_body,
-                        back_edges,
-                        iter_count: count,
-                    });
+                    fat_loops_for_unrolling.insert(
+                        label,
+                        LoopUnrollingMark {
+                            marker: attr_id,
+                            loop_body,
+                            back_edges,
+                            iter_count: count,
+                        },
+                    );
                 },
             }
         }

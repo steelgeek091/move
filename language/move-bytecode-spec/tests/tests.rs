@@ -36,20 +36,23 @@ fn test_two_instructions() {
         Sub,
     }
 
-    assert_eq!(Bytecode::spec(), vec![
-        test_map([
-            ("name", "add"),
-            ("group", "arithmetic"),
-            ("description", "add two numbers up"),
-            ("semantics", "stack >> a; stack >> b; stack << a + b;")
-        ]),
-        test_map([
-            ("name", "sub"),
-            ("group", "arithmetic"),
-            ("description", "subtract two numbers"),
-            ("semantics", "stack >> a; stack >> b; stack << b - a;")
-        ]),
-    ]);
+    assert_eq!(
+        Bytecode::spec(),
+        vec![
+            test_map([
+                ("name", "add"),
+                ("group", "arithmetic"),
+                ("description", "add two numbers up"),
+                ("semantics", "stack >> a; stack >> b; stack << a + b;")
+            ]),
+            test_map([
+                ("name", "sub"),
+                ("group", "arithmetic"),
+                ("description", "subtract two numbers"),
+                ("semantics", "stack >> a; stack >> b; stack << b - a;")
+            ]),
+        ]
+    );
 }
 
 #[test]
@@ -63,12 +66,15 @@ fn test_name_optional() {
         Add,
     }
 
-    assert_eq!(Bytecode::spec(), vec![test_map([
-        ("name", "add"),
-        ("description", ""),
-        ("semantics", ""),
-        ("group", "arithmetic"),
-    ])]);
+    assert_eq!(
+        Bytecode::spec(),
+        vec![test_map([
+            ("name", "add"),
+            ("description", ""),
+            ("semantics", ""),
+            ("group", "arithmetic"),
+        ])]
+    );
 }
 
 #[test]
@@ -83,12 +89,15 @@ fn test_name_override() {
         Add,
     }
 
-    assert_eq!(Bytecode::spec(), vec![test_map([
-        ("name", "ADD"),
-        ("description", ""),
-        ("semantics", ""),
-        ("group", "arithmetic"),
-    ])]);
+    assert_eq!(
+        Bytecode::spec(),
+        vec![test_map([
+            ("name", "ADD"),
+            ("description", ""),
+            ("semantics", ""),
+            ("group", "arithmetic"),
+        ])]
+    );
 }
 
 #[test]
@@ -106,12 +115,15 @@ fn test_indentation() {
         Add,
     }
 
-    assert_eq!(Bytecode::spec(), vec![test_map([
-        ("name", "add"),
-        ("group", "arithmetic"),
-        ("description", "first line\n  second line\n third line"),
-        ("semantics", ""),
-    ])]);
+    assert_eq!(
+        Bytecode::spec(),
+        vec![test_map([
+            ("name", "add"),
+            ("group", "arithmetic"),
+            ("description", "first line\n  second line\n third line"),
+            ("semantics", ""),
+        ])]
+    );
 }
 
 #[test]
@@ -133,12 +145,15 @@ fn test_empty_lines_in_between() {
         Add,
     }
 
-    assert_eq!(Bytecode::spec(), vec![test_map([
-        ("name", "add"),
-        ("group", "arithmetic"),
-        ("description", "first line\n\n\n  second line"),
-        ("semantics", ""),
-    ])]);
+    assert_eq!(
+        Bytecode::spec(),
+        vec![test_map([
+            ("name", "add"),
+            ("group", "arithmetic"),
+            ("description", "first line\n\n\n  second line"),
+            ("semantics", ""),
+        ])]
+    );
 }
 
 #[test]
@@ -152,12 +167,15 @@ fn test_empty_entry_1() {
         Add,
     }
 
-    assert_eq!(Bytecode::spec(), vec![test_map([
-        ("name", "add"),
-        ("group", "arithmetic"),
-        ("description", ""),
-        ("semantics", ""),
-    ])]);
+    assert_eq!(
+        Bytecode::spec(),
+        vec![test_map([
+            ("name", "add"),
+            ("group", "arithmetic"),
+            ("description", ""),
+            ("semantics", ""),
+        ])]
+    );
 }
 
 #[test]
@@ -171,10 +189,13 @@ fn test_empty_entry_2() {
         Add,
     }
 
-    assert_eq!(Bytecode::spec(), vec![test_map([
-        ("name", "add"),
-        ("group", "arithmetic"),
-        ("description", ""),
-        ("semantics", ""),
-    ])]);
+    assert_eq!(
+        Bytecode::spec(),
+        vec![test_map([
+            ("name", "add"),
+            ("group", "arithmetic"),
+            ("description", ""),
+            ("semantics", ""),
+        ])]
+    );
 }

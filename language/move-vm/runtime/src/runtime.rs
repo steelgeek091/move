@@ -2,8 +2,8 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data_cache::TransactionCache;
 use crate::{
-    data_cache::TransactionDataCache,
     interpreter::Interpreter,
     loader::{
         LegacyModuleCache, LegacyModuleStorage, LegacyModuleStorageAdapter, LoadedFunction, Loader,
@@ -73,7 +73,7 @@ impl VMRuntime {
         &self,
         modules: Vec<Vec<u8>>,
         sender: AccountAddress,
-        data_store: &mut TransactionDataCache,
+        data_store: &mut impl TransactionCache,
         module_store: &LegacyModuleStorageAdapter,
         _gas_meter: &mut impl GasMeter,
         compat: Compatibility,
@@ -390,7 +390,7 @@ impl VMRuntime {
         &self,
         function: LoadedFunction,
         serialized_args: Vec<impl Borrow<[u8]>>,
-        data_store: &mut TransactionDataCache,
+        data_store: &mut impl TransactionCache,
         module_store: &LegacyModuleStorageAdapter,
         module_storage: &impl ModuleStorage,
         gas_meter: &mut impl GasMeter,
@@ -467,7 +467,7 @@ impl VMRuntime {
         &self,
         func: LoadedFunction,
         serialized_args: Vec<impl Borrow<[u8]>>,
-        data_store: &mut TransactionDataCache,
+        data_store: &mut impl TransactionCache,
         module_store: &LegacyModuleStorageAdapter,
         gas_meter: &mut impl GasMeter,
         traversal_context: &mut TraversalContext,
@@ -491,7 +491,7 @@ impl VMRuntime {
         script: impl Borrow<[u8]>,
         ty_args: Vec<TypeTag>,
         serialized_args: Vec<impl Borrow<[u8]>>,
-        data_store: &mut TransactionDataCache,
+        data_store: &mut impl TransactionCache,
         module_store: &LegacyModuleStorageAdapter,
         gas_meter: &mut impl GasMeter,
         traversal_context: &mut TraversalContext,

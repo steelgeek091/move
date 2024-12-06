@@ -117,12 +117,11 @@ impl<'a> RecursiveStructChecker<'a> {
             struct_name,
             struct_name,
         );
-        self.mod_env
-            .env
-            .error_with_labels(&struct_env.get_loc(), "cyclic data", vec![(
-                field_env.get_loc().clone(),
-                note,
-            )]);
+        self.mod_env.env.error_with_labels(
+            &struct_env.get_loc(),
+            "cyclic data",
+            vec![(field_env.get_loc().clone(), note)],
+        );
     }
 
     /// Report cyclic dependency of structs

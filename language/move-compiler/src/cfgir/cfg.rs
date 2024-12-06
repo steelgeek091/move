@@ -257,10 +257,13 @@ impl<'a> BlockCFG<'a> {
         };
 
         let mut new_block = BasicBlock::new();
-        new_block.push_back(sp(loc, Command_::Jump {
-            target: succ,
-            from_user: false,
-        }));
+        new_block.push_back(sp(
+            loc,
+            Command_::Jump {
+                target: succ,
+                from_user: false,
+            },
+        ));
         self.blocks.insert(new_label, new_block);
     }
 }
@@ -380,9 +383,12 @@ fn is_implicit_control_flow(block: &BasicBlock) -> bool {
     block.len() == 1
         && match &block.front().unwrap().value {
             C::Jump { from_user, .. } => !*from_user,
-            C::Return { exp: e, from_user } if !*from_user => matches!(&e.exp.value, E::Unit {
-                case: UnitCase::Implicit
-            }),
+            C::Return { exp: e, from_user } if !*from_user => matches!(
+                &e.exp.value,
+                E::Unit {
+                    case: UnitCase::Implicit
+                }
+            ),
             _ => false,
         }
 }

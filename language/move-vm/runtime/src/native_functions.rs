@@ -2,8 +2,8 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data_cache::TransactionCache;
 use crate::{
-    data_cache::TransactionDataCache,
     interpreter::InterpreterDebugInterface,
     loader::{Function, Loader, Resolver},
     module_traversal::TraversalContext,
@@ -97,7 +97,7 @@ impl NativeFunctions {
 
 pub struct NativeContext<'a, 'b, 'c> {
     interpreter: &'a mut dyn InterpreterDebugInterface,
-    data_store: &'a mut TransactionDataCache<'c>,
+    data_store: &'c mut dyn TransactionCache,
     resolver: &'a Resolver<'a>,
     extensions: &'a mut NativeContextExtensions<'b>,
     gas_balance: InternalGas,
@@ -107,7 +107,7 @@ pub struct NativeContext<'a, 'b, 'c> {
 impl<'a, 'b, 'c> NativeContext<'a, 'b, 'c> {
     pub(crate) fn new(
         interpreter: &'a mut dyn InterpreterDebugInterface,
-        data_store: &'a mut TransactionDataCache<'c>,
+        data_store: &'c mut impl TransactionCache,
         resolver: &'a Resolver<'a>,
         extensions: &'a mut NativeContextExtensions<'b>,
         gas_balance: InternalGas,
@@ -259,7 +259,7 @@ impl<'a, 'b, 'c> NativeContext<'a, 'b, 'c> {
             .map_err(|e| e.finish(Location::Undefined))
     }
 
-    pub fn get_fully_annotated_type_layout(&self, type_tag: &TypeTag) -> VMResult<MoveTypeLayout> {
+    pub fn get_fully_annotated_type_layout(&self, _type_tag: &TypeTag) -> VMResult<MoveTypeLayout> {
         Ok(MoveTypeLayout::U64)
         /*
         self.resolver.loader().get_fully_annotated_type_layout(

@@ -89,7 +89,7 @@ impl LegacyModuleStorage for LegacyModuleCache {
 }
 
 // TODO(loader_v2): Remove legacy V1 loader types.
-pub(crate) struct LegacyModuleStorageAdapter {
+pub struct LegacyModuleStorageAdapter {
     modules: Arc<dyn LegacyModuleStorage>,
 }
 

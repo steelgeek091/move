@@ -31,7 +31,7 @@ use typed_arena::Arena;
 
 /// V2 implementation of loader, which is stateless - i.e., it does not contain module or script
 /// cache. Instead, module and script storages are passed to all APIs by reference.
-pub(crate) struct LoaderV2 {
+pub struct LoaderV2 {
     vm_config: VMConfig,
 }
 

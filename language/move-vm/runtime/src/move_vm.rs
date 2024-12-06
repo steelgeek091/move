@@ -51,7 +51,7 @@ impl MoveVM {
     ///     cases where this may not be necessary, with the most notable one being the common module
     ///     publishing flow: you can keep using the same Move VM if you publish some modules in a Session
     ///     and apply the effects to the storage when the Session ends.
-    pub fn new_session<'r>(&self, remote: &'r impl MoveResolver) -> Session<'r, '_> {
+    pub fn new_session<'r, '_m>(&self, remote: &'r impl MoveResolver) -> Session<'r, '_, TransactionDataCache<'r>> {
         self.new_session_with_extensions(remote, NativeContextExtensions::default())
     }
 
@@ -60,7 +60,7 @@ impl MoveVM {
         &self,
         remote: &'r impl MoveResolver,
         native_extensions: NativeContextExtensions<'r>,
-    ) -> Session<'r, '_> {
+    ) -> Session<'r, '_, TransactionDataCache<'r>> {
         Session {
             move_vm: self,
             data_cache: TransactionDataCache::new(

@@ -97,15 +97,19 @@ pub fn known_checker_names(external_checkers: &Vec<Arc<dyn ExternalChecks>>) -> 
 
 /// Report the `msg` highlighting the `loc` for the `checker_name`.
 fn report(env: &GlobalEnv, loc: &Loc, msg: &str, checker_name: &str) {
-    env.lint_diag_with_notes(loc, msg, vec![
-        format!(
+    env.lint_diag_with_notes(
+        loc,
+        msg,
+        vec![
+            format!(
         "To suppress this warning, annotate the function/module with the attribute `#[{}({})]`.",
         LintAttribute::SKIP,
         checker_name
     ),
-        format!(
-            "For more information, see {}#{}.",
-            LINTER_URL_BASE, checker_name
-        ),
-    ]);
+            format!(
+                "For more information, see {}#{}.",
+                LINTER_URL_BASE, checker_name
+            ),
+        ],
+    );
 }

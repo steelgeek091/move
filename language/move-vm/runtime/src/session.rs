@@ -2,9 +2,9 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data_cache::TransactionCache;
 use crate::{
     config::VMConfig,
-    data_cache::TransactionDataCache,
     loader::{LegacyModuleStorageAdapter, LoadedFunction},
     module_traversal::TraversalContext,
     move_vm::MoveVM,
@@ -30,9 +30,9 @@ use move_vm_types::{
 };
 use std::{borrow::Borrow, sync::Arc};
 
-pub struct Session<'r, 'l> {
+pub struct Session<'r, 'l, C> {
     pub(crate) move_vm: &'l MoveVM,
-    pub(crate) data_cache: TransactionDataCache<'r>,
+    pub(crate) data_cache: C,
     pub(crate) module_store: LegacyModuleStorageAdapter,
     pub(crate) native_extensions: NativeContextExtensions<'r>,
 }
@@ -48,7 +48,7 @@ pub struct SerializedReturnValues {
     pub return_values: Vec<(Vec<u8>, MoveTypeLayout)>,
 }
 
-impl<'r, 'l> Session<'r, 'l> {
+impl<'r, 'l, C: TransactionCache> Session<'r, 'l, C> {
     /// Execute a Move entry function.
     ///
     /// NOTE: There are NO checks on the `args` except that they can deserialize

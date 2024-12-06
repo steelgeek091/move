@@ -211,14 +211,12 @@ impl SplitCriticalEdgesTransformation {
 
     /// Generates a fresh label
     fn gen_fresh_label(&mut self) -> Label {
-        let new_label = Label::new(
-            if self.labels.is_empty() {
-                0
-            } else {
-                let max_label = self.labels.iter().next_back().expect("label");
-                max_label.as_usize() + 1
-            },
-        );
+        let new_label = Label::new(if self.labels.is_empty() {
+            0
+        } else {
+            let max_label = self.labels.iter().next_back().expect("label");
+            max_label.as_usize() + 1
+        });
         self.labels.insert(new_label);
         new_label
     }

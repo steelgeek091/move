@@ -501,11 +501,14 @@ impl LifetimeState {
 impl LifetimeState {
     /// Creates a new node with the given label and location information.
     fn new_node(&mut self, assigned_label: LifetimeLabel, location: MemoryLocation) {
-        self.graph.insert(assigned_label, LifetimeNode {
-            locations: iter::once(location).collect(),
-            children: Default::default(),
-            parents: Default::default(),
-        });
+        self.graph.insert(
+            assigned_label,
+            LifetimeNode {
+                locations: iter::once(location).collect(),
+                children: Default::default(),
+                parents: Default::default(),
+            },
+        );
     }
 
     /// Returns reference to node.
@@ -1451,13 +1454,18 @@ impl<'env, 'state> LifetimeAnalysisStep<'env, 'state> {
         let mut_prefix = if e.kind.is_mut() { "mutable " } else { "" };
         (
             e.loc.clone(),
-            format!("{}{}{}", prefix, mut_prefix, match &e.kind {
-                BorrowLocal(_) => "local borrow",
-                BorrowGlobal(..) => "global borrow",
-                BorrowField(..) => "field borrow",
-                Call(..) => "call result",
-                Freeze => "freeze",
-            },),
+            format!(
+                "{}{}{}",
+                prefix,
+                mut_prefix,
+                match &e.kind {
+                    BorrowLocal(_) => "local borrow",
+                    BorrowGlobal(..) => "global borrow",
+                    BorrowField(..) => "field borrow",
+                    Call(..) => "call result",
+                    Freeze => "freeze",
+                },
+            ),
         )
     }
 
@@ -1764,11 +1772,14 @@ impl<'env, 'state> LifetimeAnalysisStep<'env, 'state> {
     ) {
         let label = *self.state.label_for_temp(src).expect("label for reference");
         let target = self.state.replace_ref(dest, code_offset, 0);
-        self.state.add_edge(label, BorrowEdge {
-            kind: BorrowEdgeKind::Freeze,
-            loc: self.cur_loc(),
-            target,
-        });
+        self.state.add_edge(
+            label,
+            BorrowEdge {
+                kind: BorrowEdgeKind::Freeze,
+                loc: self.cur_loc(),
+                target,
+            },
+        );
         if let Some(label) = self.state.label_for_temp(src) {
             // Handle case (a): search for any siblings which mutably borrow the same
             // parent.
@@ -2115,11 +2126,14 @@ impl FunctionTargetProcessor for ReferenceSafetyProcessor {
                     false,
                 );
                 label_counter += 1;
-                state.add_edge(label, BorrowEdge {
-                    kind: BorrowEdgeKind::BorrowLocal(ty.is_mutable_reference()),
-                    loc,
-                    target,
-                })
+                state.add_edge(
+                    label,
+                    BorrowEdge {
+                        kind: BorrowEdgeKind::BorrowLocal(ty.is_mutable_reference()),
+                        loc,
+                        target,
+                    },
+                )
             }
         }
         let state_map = analyzer.analyze_function(state, target.get_bytecode(), &cfg);

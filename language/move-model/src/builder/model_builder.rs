@@ -77,7 +77,7 @@ pub struct SpecOrBuiltinFunEntry {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum EntryVisibility {
+pub enum EntryVisibility {
     Spec,
     Impl,
     SpecAndImpl,

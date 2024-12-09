@@ -6,8 +6,8 @@ pub mod binary_module_loader;
 mod builtins;
 mod exp_builder;
 mod macros;
-pub(crate) mod model_builder;
-pub(crate) mod module_builder;
+pub mod model_builder;
+pub mod module_builder;
 
 pub(crate) fn pluralize(s: &str, n: usize) -> String {
     // Should add special cases here as we come along them

@@ -61,7 +61,7 @@ use std::{
 };
 
 #[derive(Debug)]
-pub(crate) struct ModuleBuilder<'env, 'translator> {
+pub struct ModuleBuilder<'env, 'translator> {
     pub parent: &'translator mut ModelBuilder<'env>,
     /// Id of the currently build module.
     pub module_id: ModuleId,
@@ -3845,7 +3845,7 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
 }
 
 /// Extract all accesses of a schema from a schema expression.
-pub(crate) fn extract_schema_access<'a>(exp: &'a EA::Exp, res: &mut Vec<&'a EA::ModuleAccess>) {
+pub fn extract_schema_access<'a>(exp: &'a EA::Exp, res: &mut Vec<&'a EA::ModuleAccess>) {
     match &exp.value {
         EA::Exp_::Name(maccess, _) => res.push(maccess),
         EA::Exp_::Pack(maccess, ..) => res.push(maccess),

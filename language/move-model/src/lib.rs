@@ -539,7 +539,7 @@ fn check_and_update_friend_info(mut builder: ModelBuilder) {
     }
 }
 
-fn collect_related_modules_recursive<'a>(
+pub fn collect_related_modules_recursive<'a>(
     mident: &'a ModuleIdent_,
     modules: &'a UniqueMap<ModuleIdent, E::ModuleDefinition>,
     visited_modules: &mut BTreeSet<ModuleIdent_>,
@@ -712,7 +712,7 @@ pub fn script_into_module(compiled_script: CompiledScript, name: &str) -> Compil
 }
 
 #[allow(deprecated)]
-fn run_spec_checker(env: &mut GlobalEnv, units: Vec<AnnotatedCompiledUnit>, mut eprog: E::Program) {
+pub fn run_spec_checker(env: &mut GlobalEnv, units: Vec<AnnotatedCompiledUnit>, mut eprog: E::Program) {
     let mut builder = ModelBuilder::new(env);
 
     // Merge the compiled units with source ASTs, preserving the order of the compiled

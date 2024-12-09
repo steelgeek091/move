@@ -31,7 +31,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// are extended with each module translated. Each table is a mapping from fully qualified names
 /// (module names plus item name in the module) to the entity.
 #[derive(Debug)]
-pub(crate) struct ModelBuilder<'env> {
+pub struct ModelBuilder<'env> {
     /// The global environment we are building.
     pub env: &'env mut GlobalEnv,
     /// A symbol table for specification functions. Because of overloading, an entry can
@@ -65,7 +65,7 @@ pub(crate) struct ModelBuilder<'env> {
 /// A declaration of a specification function or operator in the builders state.
 /// TODO(wrwg): we should unify this type with `FunEntry` using a new `FunctionKind::Spec` kind.
 #[derive(Debug, Clone)]
-pub(crate) struct SpecOrBuiltinFunEntry {
+pub struct SpecOrBuiltinFunEntry {
     #[allow(dead_code)]
     pub loc: Loc,
     pub oper: Operation,
@@ -85,7 +85,7 @@ pub(crate) enum EntryVisibility {
 
 /// A declaration of a specification variable in the builders state.
 #[derive(Debug, Clone)]
-pub(crate) struct SpecVarEntry {
+pub struct SpecVarEntry {
     pub loc: Loc,
     pub module_id: ModuleId,
     #[allow(dead_code)]
@@ -96,7 +96,7 @@ pub(crate) struct SpecVarEntry {
 
 /// A declaration of a schema in the builders state.
 #[derive(Debug)]
-pub(crate) struct SpecSchemaEntry {
+pub struct SpecSchemaEntry {
     pub loc: Loc,
     #[allow(dead_code)]
     pub name: QualifiedSymbol,
@@ -114,7 +114,7 @@ pub(crate) struct SpecSchemaEntry {
 
 /// A declaration of a struct.
 #[derive(Debug, Clone)]
-pub(crate) struct StructEntry {
+pub struct StructEntry {
     pub loc: Loc,
     pub module_id: ModuleId,
     pub struct_id: StructId,
@@ -150,7 +150,7 @@ pub(crate) struct StructVariant {
 
 /// A declaration of a function.
 #[derive(Debug, Clone)]
-pub(crate) struct FunEntry {
+pub struct FunEntry {
     pub loc: Loc,             // location of the entire function span
     pub name_loc: Loc,        // location of just the function name
     pub result_type_loc: Loc, // location of the result type declaration
@@ -211,7 +211,7 @@ impl From<FunEntry> for AnyFunEntry {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ConstEntry {
+pub struct ConstEntry {
     pub loc: Loc,
     pub ty: Type,
     pub value: Value,
@@ -695,7 +695,7 @@ impl<'env> ModelBuilder<'env> {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct LocalVarEntry {
+pub struct LocalVarEntry {
     pub loc: Loc,
     pub type_: Type,
     /// If this local is associated with an operation, this is set.

@@ -12,6 +12,7 @@ use crate::{
 use move_binary_format::errors::{
     ExecutionState, Location, PartialVMError, PartialVMResult, VMResult,
 };
+use move_binary_format::CompiledModule;
 use move_core_types::{
     account_address::AccountAddress,
     gas_algebra::{InternalGas, NumBytes},
@@ -23,6 +24,7 @@ use move_core_types::{
 use move_vm_types::{
     loaded_data::runtime_types::Type, natives::function::NativeResult, values::Value,
 };
+use std::thread::sleep;
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
@@ -269,5 +271,21 @@ impl<'a, 'b, 'c> NativeContext<'a, 'b, 'c> {
             self.resolver.module_storage(),
         )
          */
+    }
+
+    pub fn verify_module_bundle_for_publication(
+        &mut self,
+        modules: &[CompiledModule],
+    ) -> PartialVMResult<()> {
+        match self.resolver.loader() {
+            Loader::V1(loader) => loader
+                .verify_module_bundle_for_publication(
+                    modules,
+                    self.data_store,
+                    self.resolver.module_store(),
+                )
+                .map_err(|e| e.to_partial()),
+            _ => Err(PartialVMError::new(StatusCode::ABORTED)),
+        }
     }
 }

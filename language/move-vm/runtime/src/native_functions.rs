@@ -24,7 +24,6 @@ use move_core_types::{
 use move_vm_types::{
     loaded_data::runtime_types::Type, natives::function::NativeResult, values::Value,
 };
-use std::thread::sleep;
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,

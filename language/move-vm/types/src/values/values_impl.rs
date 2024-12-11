@@ -3213,6 +3213,14 @@ impl GlobalValueImpl {
             },
         }
     }
+
+    fn reference_count(&self) -> usize {
+        match self {
+            Self::None | Self::Deleted => 0,
+            Self::Fresh { fields } => Rc::strong_count(fields),
+            Self::Cached { fields, status: _ } => Rc::strong_count(fields),
+        }
+    }
 }
 
 impl GlobalValue {
@@ -3259,6 +3267,10 @@ impl GlobalValue {
 
     pub fn is_mutated(&self) -> bool {
         self.0.is_mutated()
+    }
+
+    pub fn reference_count(&self) -> usize {
+        self.0.reference_count()
     }
 }
 

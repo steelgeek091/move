@@ -3227,6 +3227,7 @@ dependencies = [
  "move-bytecode-verifier",
  "move-command-line-common",
  "move-ir-to-bytecode",
+ "move-ir-types",
  "serde_json",
 ]
 

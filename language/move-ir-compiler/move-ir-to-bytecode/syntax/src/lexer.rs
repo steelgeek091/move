@@ -31,10 +31,12 @@ pub enum Tok {
     Star,
     Plus,
     Comma,
+    Arrow,
     Minus,
     Period,
     Slash,
     Colon,
+    ColonColon,
     ColonEqual,
     Semicolon,
     Less,
@@ -82,6 +84,7 @@ pub enum Tok {
     Let,
     Main,
     Module,
+    Metadata,
     Move,
     MoveFrom,
     MoveTo,
@@ -364,7 +367,13 @@ impl<'input> Lexer<'input> {
             '*' => (Tok::Star, 1),
             '+' => (Tok::Plus, 1),
             ',' => (Tok::Comma, 1),
-            '-' => (Tok::Minus, 1),
+            '-' =>  {
+                if text.starts_with("->") {
+                    (Tok::Arrow, 2)
+                } else {
+                    (Tok::Minus, 1)
+                }
+            },
             '.' => {
                 if text.starts_with("..") {
                     (Tok::PeriodPeriod, 2) // range, for specs
@@ -376,6 +385,8 @@ impl<'input> Lexer<'input> {
             ':' => {
                 if text.starts_with(":=") {
                     (Tok::ColonEqual, 2) // spec update
+                }  else if text.starts_with("::") {
+                    (Tok::ColonColon, 2)
                 } else {
                     (Tok::Colon, 1)
                 }
@@ -481,6 +492,7 @@ fn get_name_token(name: &str) -> Tok {
         "let" => Tok::Let,
         "main" => Tok::Main,
         "module" => Tok::Module,
+        "metadata" => Tok::Metadata,
         "native" => Tok::Native,
         "invariant" => Tok::Invariant,
         "old" => Tok::Old,

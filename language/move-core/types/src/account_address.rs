@@ -122,7 +122,28 @@ impl AccountAddress {
     /// Note: this function is guaranteed to be stable, and this is suitable for use inside
     /// Move native functions or the VM.
     pub fn to_canonical_string(&self) -> String {
-        hex::encode(self.0)
+        self.to_canonical_display(true).to_string()
+    }
+
+    pub fn to_canonical_display(&self, with_prefix: bool) -> impl fmt::Display + '_ {
+        struct HexDisplay<'a> {
+            data: &'a [u8],
+            with_prefix: bool,
+        }
+
+        impl<'a> fmt::Display for HexDisplay<'a> {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                if self.with_prefix {
+                    write!(f, "0x{}", hex::encode(self.data))
+                } else {
+                    write!(f, "{}", hex::encode(self.data))
+                }
+            }
+        }
+        HexDisplay {
+            data: &self.0,
+            with_prefix,
+        }
     }
 
     /// NOTE: For the purposes of displaying an address, using it in a response, or

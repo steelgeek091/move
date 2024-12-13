@@ -10,6 +10,7 @@ use crate::{
 };
 use bcs::test_helpers::assert_canonical_encode_decode;
 use proptest::prelude::*;
+use crate::identifier::IdentStr;
 
 proptest! {
     #[test]
@@ -22,8 +23,8 @@ proptest! {
 fn test_type_tag_deserialize_case_insensitive() {
     let org_struct_tag = StructTag {
         address: AccountAddress::ONE,
-        module: Identifier::from(ident_str!("TestModule")),
-        name: Identifier::from(ident_str!("TestStruct")),
+        module: Identifier::from(IdentStr::new("TestModule").unwrap()),
+        name: Identifier::from(IdentStr::new("TestStruct").unwrap()),
         type_args: vec![
             TypeTag::U8,
             TypeTag::U16,

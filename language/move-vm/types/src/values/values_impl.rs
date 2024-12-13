@@ -2647,13 +2647,6 @@ impl VectorRef {
         let c = self.0.container();
         check_elem_layout(type_param, c)?;
 
-        macro_rules! err_pop_empty_vec {
-            () => {
-                return Err(PartialVMError::new(StatusCode::VECTOR_OPERATION_ERROR)
-                    .with_sub_status(POP_EMPTY_VEC))
-            };
-        }
-
         match c {
             Container::VecU8(r) => {
                 r.borrow_mut().reverse();

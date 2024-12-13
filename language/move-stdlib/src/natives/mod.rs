@@ -10,6 +10,7 @@ mod helpers;
 pub mod signer;
 pub mod string;
 pub mod type_name;
+pub mod vector;
 #[cfg(feature = "testing")]
 pub mod unit_test;
 
